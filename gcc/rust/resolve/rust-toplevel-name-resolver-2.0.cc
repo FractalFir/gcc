@@ -113,7 +113,17 @@ TopLevel::visit (AST::Module &module)
   // This was copied from the old early resolver method
   // 'accumulate_escaped_macros'
   if (module.get_kind () == AST::Module::UNLOADED)
-    module.load_items ();
+    {
+      module.load_items ();
+
+      // If the module was previously unloaded, then we don't want to visit it
+      // this time around as the CfgStrip hasn't run on its inner items yet.
+      // Skip it for now, mark the visitor as dirty and try again
+
+      dirty = true;
+
+      return;
+    }
 
   DefaultResolver::visit (module);
 
@@ -125,8 +135,7 @@ TopLevel::visit (AST::Module &module)
 void
 TopLevel::visit (AST::Trait &trait)
 {
-  insert_or_error_out (trait.get_identifier ().as_string (), trait,
-		       Namespace::Types);
+  insert_or_error_out (trait.get_identifier (), trait, Namespace::Types);
 
   DefaultResolver::visit (trait);
 }
@@ -538,6 +547,8 @@ flatten_glob (const AST::UseTreeGlob &glob, std::vector<AST::SimplePath> &paths,
 {
   if (glob.has_path ())
     paths.emplace_back (glob.get_path ());
+  else
+    paths.emplace_back (AST::SimplePath ({}, false, glob.get_locus ()));
 }
 
 void

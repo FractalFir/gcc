@@ -4230,6 +4230,12 @@ future implementation of teams.  It is about to change without further notice.
 * _gfortran_caf_co_min:: Collective minimum reduction
 * _gfortran_caf_co_sum:: Collective summing reduction
 * _gfortran_caf_co_reduce:: Generic collective reduction
+* _gfortran_caf_form_team:: Team creation function
+* _gfortran_caf_change_team:: Team activation function
+* _gfortran_caf_end_team:: Team termination function
+* _gfortran_caf_sync_team:: Synchronize all images of a given team
+* _gfortran_caf_get_team:: Get the opaque handle of the specified team
+* _gfortran_caf_team_number:: Get the unique id of the given team
 @end menu
 
 
@@ -4294,21 +4300,23 @@ using the STOP and ERROR STOP statements; those use different library calls.
 
 @table @asis
 @item @emph{Synopsis}:
-@code{int _gfortran_caf_this_image (int distance)}
+@code{int _gfortran_caf_this_image (caf_team_t team)}
 
 @item @emph{Description}:
-This function returns the current image number, which is a positive number.
+Return the current image number in the @var{team}, or in the current team, if
+no @var{team} is given.
 
 @item @emph{Arguments}:
 @multitable @columnfractions .15 .70
-@item @var{distance} @tab As specified for the @code{this_image} intrinsic
-in TS18508.  Shall be a nonnegative number.
+@item @var{team} @tab intent(in), optional; The team this image's number is
+requested for.  If null, the image number in the current team is returned.
 @end multitable
 
 @item @emph{Notes}:
-If the Fortran intrinsic @code{this_image} is invoked without an argument, which
-is the only permitted form in Fortran 2008, GCC passes @code{0} as
-first argument.
+Available since Fortran 2008 without argument; Since Fortran 2018 with optional
+team argument.  Fortran 2008 uses 0 as argument for team, which is permissible,
+because a team handle is always an opaque pointer, which as a special case can
+be null here.
 @end table
 
 
@@ -4318,25 +4326,29 @@ first argument.
 
 @table @asis
 @item @emph{Synopsis}:
-@code{int _gfortran_caf_num_images(int distance, int failed)}
+@code{int _gfortran_caf_num_images (caf_team_t team, int32_t *team_number)}
 
 @item @emph{Description}:
-This function returns the number of images in the current team, if
-@var{distance} is 0 or the number of images in the parent team at the specified
-distance. If @var{failed} is -1, the function returns the number of all images at
-the specified distance; if it is 0, the function returns the number of
-nonfailed images, and if it is 1, it returns the number of failed images.
+This function returns the number of images in the team given by @var{team} or
+@var{team_number}, if either one is present.  If both are null, then the number
+of images in the current team is returned.
 
 @item @emph{Arguments}:
 @multitable @columnfractions .15 .70
-@item @var{distance} @tab the distance from this image to the ancestor.
-Shall be positive.
-@item @var{failed} @tab shall be -1, 0, or 1
+@item @var{team} @tab intent(in), optional; The team the number of images is
+requested for.  If null, the number of images in the current team is returned.
+@item @var{team_number} @tab intent(in), optional; The team id for which the
+number of teams is requested; if unset, then number of images in the current
+team is returned.
 @end multitable
 
 @item @emph{Notes}:
-This function follows TS18508. If the num_image intrinsic has no arguments,
-then the compiler passes @code{distance=0} and @code{failed=-1} to the function.
+When both argument are given, then it is caf-library dependent which argument
+is examined first.  Current implementations prioritize the @var{team} argument,
+because it is easier to retrive the number of images from it.
+
+Fortran 2008 or later, with no arguments; Fortran 2018 or later with two
+arguments.
 @end table
 
 
@@ -4705,9 +4717,9 @@ structure.
 operation, i.e., zero on success and non-zero on error.  When @code{NULL} and an
 error occurs, then an error message is printed and the program is terminated.
 @item @var{team} @tab intent(in)  The opaque team handle as returned by
-@code{FORM TEAM}.  Unused at the moment.
+@code{FORM TEAM}.
 @item @var{team_number} @tab intent(in)  The number of the team this access is
-to be part of.  Unused at the moment.
+to be part of.
 @end multitable
 
 @item @emph{Notes}:
@@ -4806,9 +4818,9 @@ structure.
 operation, i.e., zero on success and non-zero on error.  When @code{NULL} and an
 error occurs, then an error message is printed and the program is terminated.
 @item @var{team} @tab intent(in)  The opaque team handle as returned by
-@code{FORM TEAM}.  Unused at the moment.
+@code{FORM TEAM}.
 @item @var{team_number} @tab intent(in)  The number of the team this access is
-to be part of.  Unused at the moment.
+to be part of.
 @end multitable
 
 @item @emph{Notes}:
@@ -4906,13 +4918,13 @@ the operation on the sending side, i.e., zero on success and non-zero on error.
 When @code{NULL} and an error occurs, then an error message is printed and the
 program is terminated.
 @item @var{dst_team} @tab intent(in)  The opaque team handle as returned by
-@code{FORM TEAM}.  Unused at the moment.
+@code{FORM TEAM}.
 @item @var{dst_team_number} @tab intent(in)  The number of the team this access
-is to be part of.  Unused at the moment.
+is to be part of.
 @item @var{src_team} @tab intent(in)  The opaque team handle as returned by
-@code{FORM TEAM}.  Unused at the moment.
+@code{FORM TEAM}.
 @item @var{src_team_number} @tab intent(in)  The number of the team this access
-is to be part of.  Unused at the moment.
+is to be part of.
 @end multitable
 
 @item @emph{Notes}:
@@ -5653,6 +5665,180 @@ by the result string length, next come the two string arguments, followed
 by the two hidden string length arguments.  With C binding, there are no hidden
 arguments and by-reference passing and either only a single character is passed
 or an array descriptor.
+@end table
+
+
+
+@node _gfortran_caf_form_team
+@subsection @code{_gfortran_caf_form_team} --- Team creation function
+@cindex Coarray, _gfortran_caf_form_team
+
+@table @asis
+@item @emph{Synopsis}:
+@code{void _gfortran_caf_form_team (int team_id, caf_team_t *team,
+int *new_index, int *stat, char *errmsg, size_t errmsg_len)}
+
+@item @emph{Description}:
+Create a team.  All images giving the same @var{team_id} in a call to
+@code{FORM TEAM} will form a new team addressable by the opaque handle
+@var{team} which is of type @code{team_type} from the intrinsic module
+@ref{ISO_FORTRAN_ENV}.  In the team the image gets the image index given by
+@var{new_index} if present.  If @var{new_index} is absent, then an
+implementation specific index is assigned.
+
+@item @emph{Arguments}:
+@multitable @columnfractions .15 .70
+@item @var{team_id} @tab intent(in)  A unique id for each team to form.  Images
+giving the same @var{team_id} in a call to @code{FORM TEAM} belong to the same
+team.
+@item @var{team} @tab intent(out)  The opaque pointer to the newly formed team
+@item @var{new_index} @tab intent(in)  If non-null gives the unique index of
+this image in the newly formed team.  When no @var{new_index} is given, the
+caf-library is free to choose a unique index.
+@item @var{stat} @tab intent(out)  Stores the status STAT= and may be NULL.
+@item @var{errmsg} @tab intent(out)  When an error occurs, this is set to
+an error message; may be NULL.
+@item @var{errmsg_len} @tab intent(in)  the buffer size of errmsg
+@end multitable
+
+@item @emph{Notes}:
+The id given in @var{team_id} has to be unique in all subsequent calls to
+@code{FORM TEAM} on the same image.  That id is the same used in
+@code{TEAM_NUMBER=} of coarray indexes, which motivates the uniqueness.
+
+The index given in @var{new_index} needs to be unique among all members of
+team to create.  Failing uniqueness may lead to misbehaviour, which depends
+on the caf-library's implementation.  The library is free to implement
+checks for this, which imposes overhead and therefore may be avoided.
+@end table
+
+
+
+@node _gfortran_caf_change_team
+@subsection @code{_gfortran_caf_change_team} --- Team activation function
+@cindex Coarray, _gfortran_caf_change_team
+
+@table @asis
+@item @emph{Synopsis}:
+@code{void _gfortran_caf_change_team (caf_team_t team, int *stat, char *errmsg,
+size_t errmsg_len)}
+
+@item @emph{Description}:
+Actives the team given by @var{team}, which must be formed but not active
+yet.  This routine starts a new epoch on the coarray memory pool.  All
+coarrays registered from now on, will be freeed once the team is terminated.
+
+@item @emph{Arguments}:
+@multitable @columnfractions .15 .70
+@item @var{team} @tab intent(inout)  The opaque pointer to an already formed
+team
+@item @var{stat} @tab intent(out)  Stores the status STAT= and may be NULL.
+@item @var{errmsg} @tab intent(out)  When an error occurs, this is set to
+an error message; may be NULL.
+@item @var{errmsg_len} @tab intent(in)  the buffer size of errmsg
+@end multitable
+
+@item @emph{Notes}:
+When an error occurs and @var{stat} is non-null, it will be set.  Nevertheless
+will the Fortran program continue with the first statement in the change team
+block.
+@end table
+
+
+
+@node _gfortran_caf_end_team
+@subsection @code{_gfortran_caf_end_team} --- Team termination function
+@cindex Coarray, _gfortran_caf_end_team
+
+@table @asis
+@item @emph{Synopsis}:
+@code{void _gfortran_caf_end_team (int *stat, char *errmsg, size_t errmsg_len)}
+
+@item @emph{Description}:
+Terminates the last team changed to.  The coarray memory epoch is
+terminated and all coarrays allocated since the execution of @code{CHANGE TEAM}
+are freeed.
+
+@item @emph{Arguments}:
+@multitable @columnfractions .15 .70
+@item @var{stat} @tab intent(out)  Stores the status STAT= and may be NULL.
+@item @var{errmsg} @tab intent(out)  When an error occurs, this is set to
+an error message; may be NULL.
+@item @var{errmsg_len} @tab intent(in)  the buffer size of errmsg
+@end multitable
+@end table
+
+
+
+@node _gfortran_caf_sync_team
+@subsection @code{_gfortran_caf_sync_team} --- Synchronize all images of a given team
+@cindex Coarray, _gfortran_caf_sync_team
+
+@table @asis
+@item @emph{Synopsis}:
+@code{void _gfortran_caf_sync_team (caf_team_t team, int *stat, char *errmsg,
+size_t errmsg_len)}
+
+@item @emph{Description}:
+Blocks execution of the image calling @code{SYNC TEAM} until all images of the
+team given by @var{team} have joined the synchronisation call.
+
+@item @emph{Arguments}:
+@multitable @columnfractions .15 .70
+@item @var{team} @tab intent(in)  The opaque pointer to an active team
+@item @var{stat} @tab intent(out)  Stores the status STAT= and may be NULL.
+@item @var{errmsg} @tab intent(out)  When an error occurs, this is set to
+an error message; may be NULL.
+@item @var{errmsg_len} @tab intent(in)  the buffer size of errmsg
+@end multitable
+@end table
+
+
+
+@node _gfortran_caf_get_team
+@subsection @code{_gfortran_caf_get_team} --- Get the opaque handle of the specified team
+@cindex Coarray, _gfortran_caf_get_team
+
+@table @asis
+@item @emph{Synopsis}:
+@code{caf_team_t _gfortran_caf_get_team (int32_t *level)}
+
+@item @emph{Description}:
+Get the current team, when @var{level} is null, or the team specified by
+@var{level} set to @code{INITIAL_TEAM}, @code{PARENT_TEAM} or
+@code{CURRENT_TEAM} from the @code{ISO_FORTRAN_ENV} intrinsic module.  When
+being on the @code{INITIAL_TEAM} and requesting its @code{PARENT_TEAM}, then
+the initial team is returned.
+
+@item @emph{Arguments}:
+@multitable @columnfractions .15 .70
+@item @var{level} @tab intent(in)  If set to one of the levels specified in
+the @code{ISO_FORTRAN_ENV} module, the function returns the handle of the given
+team.  Values different from the allowed ones lead to a runtime error.
+@end multitable
+@end table
+
+
+
+@node _gfortran_caf_team_number
+@subsection @code{_gfortran_caf_team_number} --- Get the unique id of the given team
+@cindex Coarray, _gfortran_caf_team_number
+
+@table @asis
+@item @emph{Synopsis}:
+@code{int _gfortran_caf_team_number (caf_team_t team)}
+
+@item @emph{Description}:
+The team id given when forming the team @ref{_gfortran_caf_form_team} of the
+team specified by @var{team}, if given, or of the current team, if @var{team}
+is absent.  It is a runtime error to specify a non-existing team.
+The team has to be formed, i.e., it is not necessary that it is changed
+into to get the team number.  The initial team has the team number @code{-1}.
+
+@item @emph{Arguments}:
+@multitable @columnfractions .15 .70
+@item @var{team} @tab intent(in)  The team for which the team id is desired.
+@end multitable
 @end table
 
 

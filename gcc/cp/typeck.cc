@@ -1372,17 +1372,12 @@ cxx_safe_arg_type_equiv_p (tree t1, tree t2)
       && TYPE_PTR_P (t2))
     return true;
 
-  /* The signedness of the parameter matters only when an integral
-     type smaller than int is promoted to int, otherwise only the
-     precision of the parameter matters.
-     This check should make sure that the callee does not see
-     undefined values in argument registers.  */
+  /* Only the precision of the parameter matters.  This check should
+     make sure that the callee does not see undefined values in argument
+     registers.  */
   if (INTEGRAL_TYPE_P (t1)
       && INTEGRAL_TYPE_P (t2)
-      && TYPE_PRECISION (t1) == TYPE_PRECISION (t2)
-      && (TYPE_UNSIGNED (t1) == TYPE_UNSIGNED (t2)
-	  || !targetm.calls.promote_prototypes (NULL_TREE)
-	  || TYPE_PRECISION (t1) >= TYPE_PRECISION (integer_type_node)))
+      && TYPE_PRECISION (t1) == TYPE_PRECISION (t2))
     return true;
 
   return same_type_p (t1, t2);
@@ -11466,6 +11461,12 @@ check_return_expr (tree retval, bool *no_warning, bool *dangling)
       /* The call in a (lambda) thunk needs no conversions.  */
       if (TREE_CODE (retval) == CALL_EXPR
 	  && call_from_lambda_thunk_p (retval))
+	converted = true;
+
+      /* Don't check copy-initialization for NRV in a coroutine ramp; we
+	 implement this case as NRV, but it's specified as directly
+	 initializing the return value from get_return_object().  */
+      if (DECL_RAMP_P (current_function_decl) && named_return_value_okay_p)
 	converted = true;
 
       /* First convert the value to the function's return type, then

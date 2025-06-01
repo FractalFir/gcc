@@ -1709,6 +1709,17 @@ simplify_context::simplify_unary_operation_1 (rtx_code code, machine_mode mode,
       if (GET_MODE (op) == mode)
 	return op;
 
+      /* (zero_extend:SI (and:QI X (const))) -> (and:SI (lowpart:SI X) const)
+	 where const does not sign bit set. */
+      if (GET_CODE (op) == AND
+	  && CONST_INT_P (XEXP (op, 1))
+	  && INTVAL (XEXP (op, 1)) > 0)
+	{
+	  rtx tem = rtl_hooks.gen_lowpart_no_emit (mode, XEXP (op, 0));
+	  if (tem)
+	    return simplify_gen_binary (AND, mode, tem, XEXP (op, 1));
+	}
+
       /* Check for a zero extension of a subreg of a promoted
 	 variable, where the promotion is zero-extended, and the
 	 target mode is the same as the variable's promotion.  */
@@ -3021,6 +3032,48 @@ match_plus_neg_pattern (rtx op0, rtx op1, machine_mode mode)
   return false;
 }
 
+/* Check if OP matches the pattern of (subreg (not X)) and the subreg is
+   non-paradoxical.  */
+
+static bool
+non_paradoxical_subreg_not_p (rtx op)
+{
+  return GET_CODE (op) == SUBREG
+	 && !paradoxical_subreg_p (op)
+	 && GET_CODE (SUBREG_REG (op)) == NOT;
+}
+
+/* Convert (binop (subreg (not X)) Y) into (binop (not (subreg X)) Y), or
+   (binop X (subreg (not Y))) into (binop X (not (subreg Y))) to expose
+   opportunities to combine another binary logical operation with NOT.  */
+
+static rtx
+simplify_with_subreg_not (rtx_code binop, machine_mode mode, rtx op0, rtx op1)
+{
+  rtx opn = NULL_RTX;
+  if (non_paradoxical_subreg_not_p (op0))
+    opn = op0;
+  else if (non_paradoxical_subreg_not_p (op1))
+    opn = op1;
+
+  if (opn == NULL_RTX)
+    return NULL_RTX;
+
+  rtx new_subreg = simplify_gen_subreg (mode,
+					XEXP (SUBREG_REG (opn), 0),
+					GET_MODE (SUBREG_REG (opn)),
+					SUBREG_BYTE (opn));
+
+  if (!new_subreg)
+    return NULL_RTX;
+
+  rtx new_not = simplify_gen_unary (NOT, mode, new_subreg, mode);
+  if (opn == op0)
+    return simplify_gen_binary (binop, mode, new_not, op1);
+  else
+    return simplify_gen_binary (binop, mode, op0, new_not);
+}
+
 /* Subroutine of simplify_binary_operation.  Simplify a binary operation
    CODE with result mode MODE, operating on OP0 and OP1.  If OP0 and/or
    OP1 are constant pool references, TRUEOP0 and TRUEOP1 represent the
@@ -3738,6 +3791,10 @@ simplify_context::simplify_binary_operation_1 (rtx_code code,
 	  && rtx_equal_p (XEXP (XEXP (op0, 0), 0), op1))
 	return simplify_gen_binary (IOR, mode, XEXP (op0, 1), op1);
 
+      tem = simplify_with_subreg_not (code, mode, op0, op1);
+      if (tem)
+	return tem;
+
       tem = simplify_byte_swapping_operation (code, mode, op0, op1);
       if (tem)
 	return tem;
@@ -4006,6 +4063,10 @@ simplify_context::simplify_binary_operation_1 (rtx_code code,
 	  && rtx_equal_p (XEXP (XEXP (op0, 0), 0), op1))
 	return simplify_gen_binary (IOR, mode, XEXP (op0, 1), op1);
 
+      tem = simplify_with_subreg_not (code, mode, op0, op1);
+      if (tem)
+	return tem;
+
       tem = simplify_byte_swapping_operation (code, mode, op0, op1);
       if (tem)
 	return tem;
@@ -4273,6 +4334,10 @@ simplify_context::simplify_binary_operation_1 (rtx_code code,
 		  == (HOST_WIDE_INT_1U << (inner_prec - shift_count)) - 1))
 	    return simplify_gen_binary (LSHIFTRT, mode, XEXP (op0, 0), XEXP (op0, 1));
 	}
+
+      tem = simplify_with_subreg_not (code, mode, op0, op1);
+      if (tem)
+	return tem;
 
       tem = simplify_byte_swapping_operation (code, mode, op0, op1);
       if (tem)
@@ -7322,6 +7387,13 @@ simplify_context::simplify_ternary_operation (rtx_code code, machine_mode mode,
 	      return gen_rtx_CONST_VECTOR (mode, v);
 	    }
 
+	  if (swap_commutative_operands_p (op0, op1)
+	      /* Two operands have same precedence, then first bit of mask
+		 select first operand.  */
+	      || (!swap_commutative_operands_p (op1, op0) && !(sel & 1)))
+	    return simplify_gen_ternary (code, mode, mode, op1, op0,
+					 GEN_INT (~sel & mask));
+
 	  /* Replace (vec_merge (vec_merge a b m) c n) with (vec_merge b c n)
 	     if no element from a appears in the result.  */
 	  if (GET_CODE (op0) == VEC_MERGE)
@@ -7702,6 +7774,28 @@ native_decode_vector_rtx (machine_mode mode, const vec<target_unit> &bytes,
   return builder.build ();
 }
 
+/* Extract a PRECISION-bit integer from bytes [FIRST_BYTE, FIRST_BYTE + SIZE)
+   of target memory image BYTES.  */
+
+wide_int
+native_decode_int (const vec<target_unit> &bytes, unsigned int first_byte,
+		   unsigned int size, unsigned int precision)
+{
+  /* Pull the bytes msb first, so that we can use simple
+     shift-and-insert wide_int operations.  */
+  wide_int result (wi::zero (precision));
+  for (unsigned int i = 0; i < size; ++i)
+    {
+      unsigned int lsb = (size - i - 1) * BITS_PER_UNIT;
+      /* Always constant because the inputs are.  */
+      unsigned int subbyte
+	= subreg_size_offset_from_lsb (1, size, lsb).to_constant ();
+      result <<= BITS_PER_UNIT;
+      result |= bytes[first_byte + subbyte];
+    }
+  return result;
+}
+
 /* Read an rtx of mode MODE from the target memory image given by BYTES,
    starting at byte FIRST_BYTE.  Each element of BYTES contains BITS_PER_UNIT
    bits and the bytes are in target memory order.  The image has enough
@@ -7727,19 +7821,9 @@ native_decode_rtx (machine_mode mode, const vec<target_unit> &bytes,
   if (is_a <scalar_int_mode> (mode, &imode)
       && GET_MODE_PRECISION (imode) <= MAX_BITSIZE_MODE_ANY_INT)
     {
-      /* Pull the bytes msb first, so that we can use simple
-	 shift-and-insert wide_int operations.  */
-      unsigned int size = GET_MODE_SIZE (imode);
-      wide_int result (wi::zero (GET_MODE_PRECISION (imode)));
-      for (unsigned int i = 0; i < size; ++i)
-	{
-	  unsigned int lsb = (size - i - 1) * BITS_PER_UNIT;
-	  /* Always constant because the inputs are.  */
-	  unsigned int subbyte
-	    = subreg_size_offset_from_lsb (1, size, lsb).to_constant ();
-	  result <<= BITS_PER_UNIT;
-	  result |= bytes[first_byte + subbyte];
-	}
+      auto result = native_decode_int (bytes, first_byte,
+				       GET_MODE_SIZE (imode),
+				       GET_MODE_PRECISION (imode));
       return immed_wide_int_const (result, imode);
     }
 

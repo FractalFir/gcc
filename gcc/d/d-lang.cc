@@ -523,6 +523,10 @@ d_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
       global.params.ignoreUnsupportedPragmas = value;
       break;
 
+    case OPT_finclude_imports:
+      includeImports = true;
+      break;
+
     case OPT_finvariants:
       global.params.useInvariants = value ? CHECKENABLEon : CHECKENABLEoff;
       break;
@@ -1085,9 +1089,9 @@ d_parse_file (void)
   /* Buffer for contents of .ddoc files.  */
   OutBuffer ddocbuf;
 
-  /* In this mode, the first file name is supposed to be a duplicate
-     of one of the input files.  */
-  if (d_option.fonly && strcmp (d_option.fonly, main_input_filename) != 0)
+  /* In this mode, the main input file is supposed to be the same as the one
+     given by -fonly=.  */
+  if (d_option.fonly && !endswith (main_input_filename, d_option.fonly))
     error ("%<-fonly=%> argument is different from first input file name");
 
   for (size_t i = 0; i < num_in_fnames; i++)
@@ -1307,6 +1311,21 @@ d_parse_file (void)
 	message ("semantic3 %s", m->toChars ());
 
       dmd::semantic3 (m, NULL);
+    }
+
+  if (includeImports)
+    {
+      for (size_t i = 0; i < compiledImports.length; i++)
+	{
+	  Module *m = compiledImports[i];
+	  gcc_assert (m->isRoot ());
+
+	  if (global.params.v.verbose)
+	    message ("semantic3 %s", m->toChars ());
+
+	  dmd::semantic3 (m, NULL);
+	  modules.push (m);
+	}
     }
 
   Module::runDeferredSemantic3 ();

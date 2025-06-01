@@ -2704,6 +2704,8 @@ satisfy_declaration_constraints (tree t, sat_info info)
 static tree
 satisfy_declaration_constraints (tree t, tree args, sat_info info)
 {
+  tree orig_args = args;
+
   /* Update the declaration for diagnostics.  */
   info.in_decl = t;
 
@@ -2732,7 +2734,7 @@ satisfy_declaration_constraints (tree t, tree args, sat_info info)
   tree result = boolean_true_node;
   if (tree norm = get_normalized_constraints_from_decl (t, info.noisy ()))
     {
-      if (!push_tinst_level (t, args))
+      if (!push_tinst_level (t, orig_args))
 	return result;
       tree pattern = DECL_TEMPLATE_RESULT (t);
       push_to_top_level ();
@@ -3098,6 +3100,9 @@ diagnose_trait_expr (tree expr, tree args)
     case CPTK_IS_CONVERTIBLE:
       inform (loc, "  %qT is not convertible from %qE", t2, t1);
       break;
+    case CPTK_IS_DESTRUCTIBLE:
+      inform (loc, "  %qT is not destructible", t1);
+      break;
     case CPTK_IS_EMPTY:
       inform (loc, "  %qT is not an empty class", t1);
       break;
@@ -3142,6 +3147,9 @@ diagnose_trait_expr (tree expr, tree args)
       break;
     case CPTK_IS_NOTHROW_CONVERTIBLE:
       inform (loc, "  %qT is not nothrow convertible from %qE", t2, t1);
+      break;
+    case CPTK_IS_NOTHROW_DESTRUCTIBLE:
+      inform (loc, "  %qT is not nothrow destructible", t1);
       break;
     case CPTK_IS_NOTHROW_INVOCABLE:
       if (!t2)
@@ -3191,6 +3199,9 @@ diagnose_trait_expr (tree expr, tree args)
       break;
     case CPTK_IS_TRIVIALLY_COPYABLE:
       inform (loc, "  %qT is not trivially copyable", t1);
+      break;
+    case CPTK_IS_TRIVIALLY_DESTRUCTIBLE:
+      inform (loc, "  %qT is not trivially destructible", t1);
       break;
     case CPTK_IS_UNBOUNDED_ARRAY:
       inform (loc, "  %qT is not an unbounded array", t1);

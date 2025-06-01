@@ -1037,6 +1037,25 @@ report_conflicting_sanitizer_options (struct gcc_options *opts, location_t loc,
     }
 }
 
+/* Validate from OPTS and OPTS_SET that when -fipa-reorder-for-locality is
+   enabled no explicit -flto-partition is also passed as the locality cloning
+   pass uses its own partitioning scheme.  */
+
+static void
+validate_ipa_reorder_locality_lto_partition (struct gcc_options *opts,
+					     struct gcc_options *opts_set)
+{
+  static bool validated_p = false;
+
+  if (opts_set->x_flag_lto_partition)
+    {
+      if (opts->x_flag_ipa_reorder_for_locality && !validated_p)
+	error ("%<-fipa-reorder-for-locality%> is incompatible with"
+	       " an explicit %qs option", "-flto-partition");
+    }
+  validated_p = true;
+}
+
 /* After all options at LOC have been read into OPTS and OPTS_SET,
    finalize settings of those options and diagnose incompatible
    combinations.  */
@@ -1249,6 +1268,8 @@ finish_options (struct gcc_options *opts, struct gcc_options *opts_set,
   if (opts->x_flag_reorder_blocks_and_partition)
     SET_OPTION_IF_UNSET (opts, opts_set, flag_reorder_functions, 1);
 
+  validate_ipa_reorder_locality_lto_partition (opts, opts_set);
+
   /* The -gsplit-dwarf option requires -ggnu-pubnames.  */
   if (opts->x_dwarf_split_debug_info)
     opts->x_debug_generate_pub_sections = 2;
@@ -1363,16 +1384,8 @@ finish_options (struct gcc_options *opts, struct gcc_options *opts_set,
          || opts->x_flag_peel_loops
          || opts->x_optimize >= 3);
 
-  /* With -fcx-limited-range, we do cheap and quick complex arithmetic.  */
-  if (opts->x_flag_cx_limited_range)
-    opts->x_flag_complex_method = 0;
-  else if (opts_set->x_flag_cx_limited_range)
-    opts->x_flag_complex_method = opts->x_flag_default_complex_method;
-
-  /* With -fcx-fortran-rules, we do something in-between cheap and C99.  */
-  if (opts->x_flag_cx_fortran_rules)
-    opts->x_flag_complex_method = 1;
-  else if (opts_set->x_flag_cx_fortran_rules)
+  /* Use a frontend provided default for the complex eval method.  */
+  if (!opts_set->x_flag_complex_method)
     opts->x_flag_complex_method = opts->x_flag_default_complex_method;
 
   /* Use -fvect-cost-model=cheap instead of -fvect-cost-mode=very-cheap
@@ -3444,8 +3457,8 @@ set_fast_math_flags (struct gcc_options *opts, int set)
 	opts->x_flag_signaling_nans = 0;
       if (!opts->frontend_set_flag_rounding_math)
 	opts->x_flag_rounding_math = 0;
-      if (!opts->frontend_set_flag_cx_limited_range)
-	opts->x_flag_cx_limited_range = 1;
+      if (!opts->frontend_set_flag_complex_method)
+	opts->x_flag_complex_method = 0;
     }
 }
 
@@ -3615,7 +3628,7 @@ setup_core_dumping (diagnostic_context *dc)
 		   "setting core file size limit to maximum: %m");
   }
 #endif
-  diagnostic_abort_on_error (dc);
+  dc->set_abort_on_error (true);
 }
 
 /* Parse a -d<ARG> command line switch for OPTS, location LOC,

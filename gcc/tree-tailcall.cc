@@ -51,6 +51,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "symbol-summary.h"
 #include "ipa-cp.h"
 #include "ipa-prop.h"
+#include "attribs.h"
+#include "asan.h"
 
 /* The file implements the tail recursion elimination.  It is also used to
    analyze the tail calls in general, passing the results to the rtl level
@@ -121,6 +123,9 @@ struct tailcall
 
   /* True if it is a call to the current function.  */
   bool tail_recursion;
+
+  /* True if there is __tsan_func_exit call after the call.  */
+  bool has_tsan_func_exit;
 
   /* The return value of the caller is mult * f + add, where f is the return
      value of the call.  */
@@ -492,10 +497,10 @@ maybe_error_musttail (gcall *call, const char *err, bool diag_musttail)
       gimple_call_set_must_tail (call, false); /* Avoid another error.  */
       gimple_call_set_tail (call, false);
     }
-  if (dump_file)
+  if (dump_file && (dump_flags & TDF_DETAILS))
     {
+      fprintf (dump_file, "Cannot tail-call: %s: ", err);
       print_gimple_stmt (dump_file, call, 0, TDF_SLIM);
-      fprintf (dump_file, "Cannot convert: %s\n", err);
     }
 }
 
@@ -504,7 +509,7 @@ maybe_error_musttail (gcall *call, const char *err, bool diag_musttail)
    Search at most CNT basic blocks (so that we don't need to do trivial
    loop discovery).  */
 static bool
-empty_eh_cleanup (basic_block bb, int cnt)
+empty_eh_cleanup (basic_block bb, int *eh_has_tsan_func_exit, int cnt)
 {
   if (EDGE_COUNT (bb->succs) > 1)
     return false;
@@ -515,6 +520,14 @@ empty_eh_cleanup (basic_block bb, int cnt)
       gimple *g = gsi_stmt (gsi);
       if (is_gimple_debug (g) || gimple_clobber_p (g))
 	continue;
+      if (eh_has_tsan_func_exit
+	  && !*eh_has_tsan_func_exit
+	  && sanitize_flags_p (SANITIZE_THREAD)
+	  && gimple_call_builtin_p (g, BUILT_IN_TSAN_FUNC_EXIT))
+	{
+	  *eh_has_tsan_func_exit = 1;
+	  continue;
+	}
       if (is_gimple_resx (g) && stmt_can_throw_external (cfun, g))
 	return true;
       return false;
@@ -523,7 +536,7 @@ empty_eh_cleanup (basic_block bb, int cnt)
     return false;
   if (cnt == 1)
     return false;
-  return empty_eh_cleanup (single_succ (bb), cnt - 1);
+  return empty_eh_cleanup (single_succ (bb), eh_has_tsan_func_exit, cnt - 1);
 }
 
 /* Argument for compute_live_vars/live_vars_at_stmt and what compute_live_vars
@@ -531,14 +544,22 @@ empty_eh_cleanup (basic_block bb, int cnt)
 static live_vars_map *live_vars;
 static vec<bitmap_head> live_vars_vec;
 
-/* Finds tailcalls falling into basic block BB. The list of found tailcalls is
+/* Finds tailcalls falling into basic block BB.  The list of found tailcalls is
    added to the start of RET.  When ONLY_MUSTTAIL is set only handle musttail.
    Update OPT_TAILCALLS as output parameter.  If DIAG_MUSTTAIL, diagnose
-   failures for musttail calls.  */
+   failures for musttail calls.  RETRY_TSAN_FUNC_EXIT is initially 0 and
+   in that case the last call is attempted to be tail called, including
+   __tsan_func_exit with -fsanitize=thread.  It is set to -1 if we
+   detect __tsan_func_exit call and in that case tree_optimize_tail_calls_1
+   will retry with it set to 1 (regardless of whether turning the
+   __tsan_func_exit was successfully detected as tail call or not) and that
+   will allow turning musttail calls before that call into tail calls as well
+   by adding __tsan_func_exit call before the call.  */
 
 static void
 find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
-		 bool &opt_tailcalls, bool diag_musttail)
+		 bool &opt_tailcalls, bool diag_musttail,
+		 int &retry_tsan_func_exit)
 {
   tree ass_var = NULL_TREE, ret_var, func, param;
   gimple *stmt;
@@ -552,6 +573,8 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
   size_t idx;
   tree var;
   bool only_tailr = false;
+  bool has_tsan_func_exit = false;
+  int eh_has_tsan_func_exit = -1;
 
   if (!single_succ_p (bb)
       && (EDGE_COUNT (bb->succs) || !cfun->has_musttail || !diag_musttail))
@@ -585,6 +608,17 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 	  || is_gimple_debug (stmt))
 	continue;
 
+      if (cfun->has_musttail
+	  && sanitize_flags_p (SANITIZE_THREAD)
+	  && gimple_call_builtin_p (stmt, BUILT_IN_TSAN_FUNC_EXIT)
+	  && diag_musttail)
+	{
+	  if (retry_tsan_func_exit == 0)
+	    retry_tsan_func_exit = -1;
+	  else if (retry_tsan_func_exit == 1)
+	    continue;
+	}
+
       if (!last_stmt)
 	last_stmt = stmt;
       /* Check for a call.  */
@@ -596,9 +630,8 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 	    return;
 	  if (bad_stmt)
 	    {
-	      maybe_error_musttail (call,
-				    _("memory reference or volatile after "
-				      "call"), diag_musttail);
+	      maybe_error_musttail (call, _("memory reference or volatile "
+					    "after call"), diag_musttail);
 	      return;
 	    }
 	  ass_var = gimple_call_lhs (call);
@@ -636,7 +669,7 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
       /* Recurse to the predecessors.  */
       FOR_EACH_EDGE (e, ei, bb->preds)
 	find_tail_calls (e->src, ret, only_musttail, opt_tailcalls,
-			 diag_musttail);
+			 diag_musttail, retry_tsan_func_exit);
 
       return;
     }
@@ -711,19 +744,22 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 
     if (!e)
       {
-	maybe_error_musttail (call,
-			      _("call may throw exception that does not "
-				"propagate"), diag_musttail);
+	maybe_error_musttail (call, _("call may throw exception that does not "
+				      "propagate"), diag_musttail);
 	return;
       }
 
+    if (diag_musttail && gimple_call_must_tail_p (call))
+      eh_has_tsan_func_exit = 0;
     if (!gimple_call_must_tail_p (call)
-	|| !empty_eh_cleanup (e->dest, 20)
+	|| !empty_eh_cleanup (e->dest,
+			      eh_has_tsan_func_exit
+			      ? NULL : &eh_has_tsan_func_exit, 20)
 	|| EDGE_COUNT (bb->succs) > 2)
       {
-	maybe_error_musttail (call,
-			      _("call may throw exception caught locally "
-				"or perform cleanups"), diag_musttail);
+	maybe_error_musttail (call, _("call may throw exception caught "
+				      "locally or perform cleanups"),
+			      diag_musttail);
 	return;
       }
   }
@@ -791,8 +827,7 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 		  ? !is_gimple_reg (param)
 		  : (!is_gimple_variable (param)
 		     || TREE_THIS_VOLATILE (param)
-		     || may_be_aliased (param)
-		     || !gimple_call_must_tail_p (call)))
+		     || may_be_aliased (param)))
 		break;
 	    }
 	}
@@ -854,9 +889,8 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 		}
 	      if (local_live_vars)
 		BITMAP_FREE (local_live_vars);
-	      maybe_error_musttail (call,
-				    _("call invocation refers to locals"),
-				    diag_musttail);
+	      maybe_error_musttail (call, _("call invocation refers to "
+					    "locals"), diag_musttail);
 	      return;
 	    }
 	  else
@@ -883,9 +917,8 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 		      continue;
 		    }
 		  BITMAP_FREE (local_live_vars);
-		  maybe_error_musttail (call,
-					_("call invocation refers to locals"),
-					diag_musttail);
+		  maybe_error_musttail (call, _("call invocation refers to "
+						"locals"), diag_musttail);
 		  return;
 		}
 	    }
@@ -950,6 +983,17 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
 	  || gimple_clobber_p (stmt)
 	  || is_gimple_debug (stmt))
 	continue;
+
+      if (cfun->has_musttail
+	  && sanitize_flags_p (SANITIZE_THREAD)
+	  && retry_tsan_func_exit == 1
+	  && gimple_call_builtin_p (stmt, BUILT_IN_TSAN_FUNC_EXIT)
+	  && !has_tsan_func_exit
+	  && gimple_call_must_tail_p (call))
+	{
+	  has_tsan_func_exit = true;
+	  continue;
+	}
 
       if (gimple_code (stmt) != GIMPLE_ASSIGN)
 	{
@@ -1020,8 +1064,7 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
       if (!VOID_TYPE_P (rettype)
 	  && !useless_type_conversion_p (rettype, calltype))
 	{
-	  maybe_error_musttail (call,
-				_("call and return value are different"),
+	  maybe_error_musttail (call, _("call and return value are different"),
 				diag_musttail);
 	  return;
 	}
@@ -1039,61 +1082,77 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
     {
       bool ok = false;
       value_range val;
-      tree valr;
-      /* If IPA-VRP proves called function always returns a singleton range,
-	 the return value is replaced by the only value in that range.
-	 For tail call purposes, pretend such replacement didn't happen.  */
       if (ass_var == NULL_TREE && !tail_recursion)
-	if (tree type = gimple_range_type (call))
-	  if (tree callee = gimple_call_fndecl (call))
-	    if ((INTEGRAL_TYPE_P (type)
-		 || SCALAR_FLOAT_TYPE_P (type)
-		 || POINTER_TYPE_P (type))
-		&& useless_type_conversion_p (TREE_TYPE (TREE_TYPE (callee)),
-					      type)
-		&& useless_type_conversion_p (TREE_TYPE (ret_var), type)
-		&& ipa_return_value_range (val, callee)
-		&& val.singleton_p (&valr))
+	{
+	  tree other_value = NULL_TREE;
+	  /* If we have a function call that we know the return value is the same
+	     as the argument, try the argument too. */
+	  int flags = gimple_call_return_flags (call);
+	  if ((flags & ERF_RETURNS_ARG) != 0
+	      && (flags & ERF_RETURN_ARG_MASK) < gimple_call_num_args (call))
+	    {
+	      tree arg = gimple_call_arg (call, flags & ERF_RETURN_ARG_MASK);
+	      if (useless_type_conversion_p (TREE_TYPE (ret_var), TREE_TYPE (arg) ))
+		other_value = arg;
+	    }
+	  /* If IPA-VRP proves called function always returns a singleton range,
+	     the return value is replaced by the only value in that range.
+	     For tail call purposes, pretend such replacement didn't happen.  */
+	  else if (tree type = gimple_range_type (call))
+	    if (tree callee = gimple_call_fndecl (call))
 	      {
-		tree rv = ret_var;
-		unsigned int i = edges.length ();
-		/* If ret_var is equal to valr, we can tail optimize.  */
-		if (operand_equal_p (ret_var, valr, 0))
-		  ok = true;
-		else
-		  /* Otherwise, if ret_var is a PHI result, try to find out
-		     if valr isn't propagated through PHIs on the path from
-		     call's bb to SSA_NAME_DEF_STMT (ret_var)'s bb.  */
-		  while (TREE_CODE (rv) == SSA_NAME
-			 && gimple_code (SSA_NAME_DEF_STMT (rv)) == GIMPLE_PHI)
-		    {
-		      tree nrv = NULL_TREE;
-		      gimple *g = SSA_NAME_DEF_STMT (rv);
-		      for (; i; --i)
-			{
-			  if (edges[i - 1]->dest == gimple_bb (g))
-			    {
-			      nrv
-				= gimple_phi_arg_def_from_edge (g,
-								edges[i - 1]);
-			      --i;
-			      break;
-			    }
-			}
-		      if (nrv == NULL_TREE)
-			break;
-		      if (operand_equal_p (nrv, valr, 0))
-			{
-			  ok = true;
-			  break;
-			}
-		      rv = nrv;
-		    }
+		tree valr;
+		if ((INTEGRAL_TYPE_P (type)
+		     || SCALAR_FLOAT_TYPE_P (type)
+		     || POINTER_TYPE_P (type))
+		    && useless_type_conversion_p (TREE_TYPE (TREE_TYPE (callee)),
+					      type)
+		    && useless_type_conversion_p (TREE_TYPE (ret_var), type)
+		    && ipa_return_value_range (val, callee)
+		    && val.singleton_p (&valr))
+		  other_value = valr;
 	      }
+
+	  if (other_value)
+	    {
+	      tree rv = ret_var;
+	      unsigned int i = edges.length ();
+	      /* If ret_var is equal to other_value, we can tail optimize.  */
+	      if (operand_equal_p (ret_var, other_value, 0))
+		ok = true;
+	      else
+		/* Otherwise, if ret_var is a PHI result, try to find out
+		   if other_value isn't propagated through PHIs on the path from
+		   call's bb to SSA_NAME_DEF_STMT (ret_var)'s bb.  */
+		while (TREE_CODE (rv) == SSA_NAME
+		      && gimple_code (SSA_NAME_DEF_STMT (rv)) == GIMPLE_PHI)
+		  {
+		    tree nrv = NULL_TREE;
+		    gimple *g = SSA_NAME_DEF_STMT (rv);
+		    for (; i; --i)
+		      {
+			if (edges[i - 1]->dest == gimple_bb (g))
+			  {
+			    nrv = gimple_phi_arg_def_from_edge (g,
+								edges[i - 1]);
+			    --i;
+			    break;
+			  }
+		      }
+		    if (nrv == NULL_TREE)
+		      break;
+		    if (operand_equal_p (nrv, other_value, 0))
+		      {
+			ok = true;
+			break;
+		      }
+		      rv = nrv;
+		  }
+	  }
+	}
       if (!ok)
 	{
-	  maybe_error_musttail (call,
-				_("call and return value are different"),
+	  maybe_error_musttail (call, _("call and return value are different"),
 				diag_musttail);
 	  return;
 	}
@@ -1103,18 +1162,29 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
      multiplicands.  */
   if (!tail_recursion && (m || a))
     {
-      maybe_error_musttail (call,
-			    _("operations after non tail recursive call"),
-			    diag_musttail);
+      maybe_error_musttail (call, _("operations after non tail recursive "
+				    "call"), diag_musttail);
       return;
     }
 
   /* For pointers only allow additions.  */
   if (m && POINTER_TYPE_P (TREE_TYPE (DECL_RESULT (current_function_decl))))
     {
-      maybe_error_musttail (call,
-			    _("tail recursion with pointers can only use "
-			      "additions"), diag_musttail);
+      maybe_error_musttail (call, _("tail recursion with pointers can only "
+				    "use additions"), diag_musttail);
+      return;
+    }
+
+  if (eh_has_tsan_func_exit != -1
+      && eh_has_tsan_func_exit != has_tsan_func_exit)
+    {
+      if (eh_has_tsan_func_exit)
+	maybe_error_musttail (call, _("call may throw exception caught "
+				      "locally or perform cleanups"),
+			      diag_musttail);
+      else
+	maybe_error_musttail (call, _("exception cleanups omit "
+				      "__tsan_func_exit call"), diag_musttail);
       return;
     }
 
@@ -1146,6 +1216,7 @@ find_tail_calls (basic_block bb, struct tailcall **ret, bool only_musttail,
   nw->call_gsi = gsi;
 
   nw->tail_recursion = tail_recursion;
+  nw->has_tsan_func_exit = has_tsan_func_exit;
 
   nw->mult = m;
   nw->add = a;
@@ -1480,6 +1551,14 @@ static bool
 optimize_tail_call (struct tailcall *t, bool opt_tailcalls,
 		    class loop *&new_loop)
 {
+  if (t->has_tsan_func_exit && (t->tail_recursion || opt_tailcalls))
+    {
+      tree builtin_decl = builtin_decl_implicit (BUILT_IN_TSAN_FUNC_EXIT);
+      gimple *g = gimple_build_call (builtin_decl, 0);
+      gimple_set_location (g, cfun->function_end_locus);
+      gsi_insert_before (&t->call_gsi, g, GSI_SAME_STMT);
+    }
+
   if (t->tail_recursion)
     {
       eliminate_tail_call (t, new_loop);
@@ -1498,6 +1577,7 @@ optimize_tail_call (struct tailcall *t, bool opt_tailcalls,
 	  print_gimple_stmt (dump_file, stmt, 0, dump_flags);
 	  fprintf (dump_file, " in bb %i\n", (gsi_bb (t->call_gsi))->index);
 	}
+      return t->has_tsan_func_exit;
     }
 
   return false;
@@ -1547,12 +1627,23 @@ tree_optimize_tail_calls_1 (bool opt_tailcalls, bool only_musttail,
       /* Only traverse the normal exits, i.e. those that end with return
 	 statement.  */
       if (safe_is_a <greturn *> (*gsi_last_bb (e->src)))
-	find_tail_calls (e->src, &tailcalls, only_musttail, opt_tailcalls,
-			 diag_musttail);
+	{
+	  int retry_tsan_func_exit = 0;
+	  find_tail_calls (e->src, &tailcalls, only_musttail, opt_tailcalls,
+			   diag_musttail, retry_tsan_func_exit);
+	  if (retry_tsan_func_exit == -1)
+	    {
+	      retry_tsan_func_exit = 1;
+	      find_tail_calls (e->src, &tailcalls, only_musttail,
+			       opt_tailcalls, diag_musttail,
+			       retry_tsan_func_exit);
+	    }
+	}
     }
   if (cfun->has_musttail && diag_musttail)
     {
       basic_block bb;
+      int retry_tsan_func_exit = 0;
       FOR_EACH_BB_FN (bb, cfun)
 	if (EDGE_COUNT (bb->succs) == 0
 	    || (single_succ_p (bb)
@@ -1562,7 +1653,7 @@ tree_optimize_tail_calls_1 (bool opt_tailcalls, bool only_musttail,
 		&& gimple_call_must_tail_p (as_a <gcall *> (c))
 		&& gimple_call_noreturn_p (as_a <gcall *> (c)))
 	      find_tail_calls (bb, &tailcalls, only_musttail, opt_tailcalls,
-			       diag_musttail);
+			       diag_musttail, retry_tsan_func_exit);
     }
 
   if (live_vars)
@@ -1594,10 +1685,10 @@ tree_optimize_tail_calls_1 (bool opt_tailcalls, bool only_musttail,
 		struct tailcall *a = *p;
 		*p = (*p)->next;
 		gcall *call = as_a <gcall *> (gsi_stmt (a->call_gsi));
-		maybe_error_musttail (call,
-				      _("tail recursion with accumulation "
-					"mixed with musttail "
-					"non-recursive call"), diag_musttail);
+		maybe_error_musttail (call, _("tail recursion with "
+					      "accumulation mixed with "
+					      "musttail non-recursive call"),
+				      diag_musttail);
 		free (a);
 	      }
 	    else

@@ -1,7 +1,12 @@
 // { dg-do run { target c++23 } }
 
-#include <algorithm>
 #include <map>
+
+#if __cpp_lib_containers_ranges != 202202L
+# error "Feature-test macro __cpp_lib_containers_ranges has wrong value in <map>"
+#endif
+
+#include <algorithm>
 #include <ranges>
 #include <span>
 #include <testsuite_allocator.h>
@@ -38,11 +43,11 @@ test_deduction_guide()
 
   __gnu_test::test_input_range<std::pair<const long, const float>> r2(0, 0);
   std::multimap m5(std::from_range, r2);
-  static_assert(std::is_same_v<decltype(m5), std::multimap<long, const float>>);
+  static_assert(std::is_same_v<decltype(m5), std::multimap<long, float>>);
 
-  // LWG4223: deduces multimap<const long&, float&>
-  //__gnu_test::test_input_range<std::pair<const long&, float&>> r3(0, 0);
-  // std::multimap m6(std::from_range, r3);
+  __gnu_test::test_input_range<std::pair<const long&, float&>> r3(0, 0);
+  std::multimap m6(std::from_range, r3);
+  static_assert(std::is_same_v<decltype(m6), std::multimap<long, float>>);
 
   __gnu_test::test_input_range<std::tuple<long, float>> r4(0, 0);
   std::multimap m7(std::from_range, r4);

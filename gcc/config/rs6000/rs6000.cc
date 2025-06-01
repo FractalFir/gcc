@@ -55,7 +55,6 @@
 #include "output.h"
 #include "common/common-target.h"
 #include "langhooks.h"
-#include "reload.h"
 #include "sched-int.h"
 #include "gimplify.h"
 #include "gimple-iterator.h"
@@ -9259,8 +9258,7 @@ rs6000_debug_legitimize_address (rtx x, rtx oldx, machine_mode mode)
 
   start_sequence ();
   ret = rs6000_legitimize_address (x, oldx, mode);
-  insns = get_insns ();
-  end_sequence ();
+  insns = end_sequence ();
 
   if (ret != x)
     {
@@ -25765,10 +25763,13 @@ rs6000_can_inline_p (tree caller, tree callee)
 	}
     }
 
-  /* Ignore -mpower8-fusion and -mpower10-fusion options for inlining
-     purposes.  */
-  callee_isa &= ~(OPTION_MASK_P8_FUSION | OPTION_MASK_P10_FUSION);
-  explicit_isa &= ~(OPTION_MASK_P8_FUSION | OPTION_MASK_P10_FUSION);
+  /* Ignore -mpower8-fusion, -mpower10-fusion and -msave-toc-indirect options
+     for inlining purposes.  */
+  HOST_WIDE_INT ignored_isas = (OPTION_MASK_P8_FUSION
+				| OPTION_MASK_P10_FUSION
+				| OPTION_MASK_SAVE_TOC_INDIRECT);
+  callee_isa &= ~ignored_isas;
+  explicit_isa &= ~ignored_isas;
 
   /* The callee's options must be a subset of the caller's options, i.e.
      a vsx function may inline an altivec function, but a no-vsx function

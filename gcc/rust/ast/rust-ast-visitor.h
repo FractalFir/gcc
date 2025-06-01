@@ -131,6 +131,7 @@ public:
   virtual void visit (AwaitExpr &expr) = 0;
   virtual void visit (AsyncBlockExpr &expr) = 0;
   virtual void visit (InlineAsm &expr) = 0;
+  virtual void visit (LlvmInlineAsm &expr) = 0;
 
   // rust-item.h
   virtual void visit (TypeParam &param) = 0;
@@ -241,6 +242,8 @@ public:
 class DefaultASTVisitor : public ASTVisitor
 {
 public:
+  virtual void visit_function_params (AST::Function &function);
+
   virtual void visit (AST::Crate &crate);
 
   virtual void visit (AST::Token &tok) override;
@@ -314,6 +317,7 @@ public:
   virtual void visit (AST::AwaitExpr &expr) override;
   virtual void visit (AST::AsyncBlockExpr &expr) override;
   virtual void visit (InlineAsm &expr) override;
+  virtual void visit (LlvmInlineAsm &expr) override;
 
   virtual void visit (AST::TypeParam &param) override;
   virtual void visit (AST::LifetimeWhereClauseItem &item) override;

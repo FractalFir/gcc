@@ -218,9 +218,7 @@ lambda_capture_field_type (tree expr, bool explicit_init_p,
   tree type;
   bool is_this = is_this_parameter (tree_strip_nop_conversions (expr));
 
-  if (is_this)
-    type = TREE_TYPE (expr);
-  else if (explicit_init_p)
+  if (explicit_init_p)
     {
       tree auto_node = make_auto ();
 
@@ -259,7 +257,7 @@ lambda_capture_field_type (tree expr, bool explicit_init_p,
 
       type = non_reference (unlowered_expr_type (expr));
 
-      if (by_reference_p || TREE_CODE (type) == FUNCTION_TYPE)
+      if ((by_reference_p && !is_this) || TREE_CODE (type) == FUNCTION_TYPE)
 	type = build_reference_type (type);
     }
 
@@ -348,7 +346,11 @@ insert_capture_proxy (tree var)
 
   /* And put a DECL_EXPR in the STATEMENT_LIST for the same block.  */
   var = build_stmt (DECL_SOURCE_LOCATION (var), DECL_EXPR, var);
-  tree stmt_list = (*stmt_list_stack)[1];
+  /* The first stmt_list is from start_preparsed_function.  Then there's a
+     possible stmt_list from begin_eh_spec_block, then the one from the
+     lambda's outer {}.  */
+  unsigned index = 1 + use_eh_spec_block (current_function_decl);
+  tree stmt_list = (*stmt_list_stack)[index];
   gcc_assert (stmt_list);
   append_to_statement_list_force (var, &stmt_list);
 }
@@ -436,13 +438,21 @@ build_capture_proxy (tree member, tree init)
   else
     name = get_identifier (IDENTIFIER_POINTER (DECL_NAME (member)) + 2);
 
-  type = lambda_proxy_type (object);
-
-  if (name == this_identifier && !INDIRECT_TYPE_P (type))
+  if (name == this_identifier && TYPE_PTR_P (TREE_TYPE (member)))
+    /* Avoid DECLTYPE_TYPE for by-ref 'this' capture in an xobj lambda; the
+       constness of the closure doesn't matter just like it doesn't matter to
+       other by-ref capture.  It's simpler to handle this special case here
+       than in lambda_proxy_type.  */
+    type = TREE_TYPE (member);
+  else
     {
-      type = build_pointer_type (type);
-      type = cp_build_qualified_type (type, TYPE_QUAL_CONST);
-      object = build_fold_addr_expr_with_type (object, type);
+      type = lambda_proxy_type (object);
+      if (name == this_identifier)
+	{
+	  type = build_pointer_type (type);
+	  type = cp_build_qualified_type (type, TYPE_QUAL_CONST);
+	  object = build_fold_addr_expr_with_type (object, type);
+	}
     }
 
   if (DECL_VLA_CAPTURE_P (member))
@@ -917,8 +927,9 @@ lambda_expr_this_capture (tree lambda, int add_capture_p)
   else
     {
       /* To make sure that current_class_ref is for the lambda.  */
-      gcc_assert (TYPE_MAIN_VARIANT (TREE_TYPE (current_class_ref))
-		  == LAMBDA_EXPR_CLOSURE (lambda));
+      gcc_assert (!current_class_ref
+		  || (TYPE_MAIN_VARIANT (TREE_TYPE (current_class_ref))
+		      == LAMBDA_EXPR_CLOSURE (lambda)));
 
       result = this_capture;
 
@@ -1033,12 +1044,9 @@ current_nonlambda_function (void)
 tree
 nonlambda_method_basetype (void)
 {
-  if (!current_class_ref)
-    return NULL_TREE;
-
   tree type = current_class_type;
   if (!type || !LAMBDA_TYPE_P (type))
-    return type;
+    return current_class_ref ? type : NULL_TREE;
 
   while (true)
     {
@@ -1050,7 +1058,7 @@ nonlambda_method_basetype (void)
 
       tree fn = TYPE_CONTEXT (type);
       if (!fn || TREE_CODE (fn) != FUNCTION_DECL
-	  || !DECL_IOBJ_MEMBER_FUNCTION_P (fn))
+	  || !DECL_OBJECT_MEMBER_FUNCTION_P (fn))
 	/* No enclosing non-lambda method.  */
 	return NULL_TREE;
       if (!LAMBDA_FUNCTION_P (fn))
@@ -1858,6 +1866,12 @@ prune_lambda_captures (tree body)
 
   cp_walk_tree_without_duplicates (&body, mark_const_cap_r, &const_vars);
 
+  tree bind_expr = expr_single (DECL_SAVED_TREE (lambda_function (lam)));
+  bool noexcept_p = (bind_expr
+		     && TREE_CODE (bind_expr) == MUST_NOT_THROW_EXPR);
+  if (noexcept_p)
+    bind_expr = expr_single (TREE_OPERAND (bind_expr, 0));
+
   tree *fieldp = &TYPE_FIELDS (LAMBDA_EXPR_CLOSURE (lam));
   for (tree *capp = &LAMBDA_EXPR_CAPTURE_LIST (lam); *capp; )
     {
@@ -1865,10 +1879,22 @@ prune_lambda_captures (tree body)
       if (tree var = var_to_maybe_prune (cap))
 	{
 	  tree **use = const_vars.get (var);
-	  if (use && TREE_CODE (**use) == DECL_EXPR)
+	  if (TREE_CODE (**use) == DECL_EXPR)
 	    {
 	      /* All uses of this capture were folded away, leaving only the
 		 proxy declaration.  */
+
+	      if (noexcept_p)
+		{
+		  /* We didn't handle noexcept lambda captures correctly before
+		     the fix for PR c++/119764.  */
+		  if (abi_version_crosses (21))
+		    warning_at (location_of (lam), OPT_Wabi, "%qD is no longer"
+				" captured in noexcept lambda in ABI v21 "
+				"(GCC 16)", var);
+		  if (!abi_version_at_least (21))
+		    goto next;
+		}
 
 	      /* Splice the capture out of LAMBDA_EXPR_CAPTURE_LIST.  */
 	      *capp = TREE_CHAIN (cap);
@@ -1879,12 +1905,27 @@ prune_lambda_captures (tree body)
 		fieldp = &DECL_CHAIN (*fieldp);
 	      *fieldp = DECL_CHAIN (*fieldp);
 
+	      /* And out of the bindings for the function.  */
+	      tree *blockp = &BLOCK_VARS (current_binding_level->blocks);
+	      while (*blockp != DECL_EXPR_DECL (**use))
+		blockp = &DECL_CHAIN (*blockp);
+	      *blockp = DECL_CHAIN (*blockp);
+
+	      /* And maybe out of the vars declared in the containing
+		 BIND_EXPR, if it's listed there.  */
+	      tree *bindp = &BIND_EXPR_VARS (bind_expr);
+	      while (*bindp && *bindp != DECL_EXPR_DECL (**use))
+		bindp = &DECL_CHAIN (*bindp);
+	      if (*bindp)
+		*bindp = DECL_CHAIN (*bindp);
+
 	      /* And remove the capture proxy declaration.  */
 	      **use = void_node;
 	      continue;
 	    }
 	}
 
+    next:
       capp = &TREE_CHAIN (cap);
     }
 }

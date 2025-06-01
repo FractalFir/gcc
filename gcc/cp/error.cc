@@ -38,7 +38,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "cp-name-hint.h"
 #include "attribs.h"
 #include "pretty-print-format-impl.h"
-#include "make-unique.h"
 #include "diagnostic-format-text.h"
 
 #define pp_separate_with_comma(PP) pp_cxx_separate_with (PP, ',')
@@ -183,9 +182,10 @@ class cxx_format_postprocessor : public format_postprocessor
   : m_type_a (), m_type_b ()
   {}
 
-  format_postprocessor *clone() const final override
+  std::unique_ptr<format_postprocessor>
+  clone() const final override
   {
-    return new cxx_format_postprocessor ();
+    return std::make_unique<cxx_format_postprocessor> ();
   }
 
   void handle (pretty_printer *pp) final override;
@@ -193,6 +193,32 @@ class cxx_format_postprocessor : public format_postprocessor
   deferred_printed_type m_type_a;
   deferred_printed_type m_type_b;
 };
+
+/* Constructor and destructor for cxx_dump_pretty_printer, defined here to
+   avoid needing to move cxx_format_postprocessor into the header as well.  */
+
+cxx_dump_pretty_printer::
+cxx_dump_pretty_printer (int phase)
+  : phase (phase)
+{
+  outf = dump_begin (phase, &flags);
+  if (outf)
+    {
+      pp_format_decoder (this) = cp_printer;
+      set_format_postprocessor (std::make_unique<cxx_format_postprocessor> ());
+      set_output_stream (outf);
+    }
+}
+
+cxx_dump_pretty_printer::
+~cxx_dump_pretty_printer ()
+{
+  if (outf)
+    {
+      pp_flush (this);
+      dump_end (phase, outf);
+    }
+}
 
 /* Return the in-scope template that's currently being parsed, or
    NULL_TREE otherwise.  */
@@ -275,7 +301,7 @@ void
 cxx_initialize_diagnostics (diagnostic_context *context)
 {
   cxx_pretty_printer *pp = new cxx_pretty_printer ();
-  pp_format_postprocessor (pp) = new cxx_format_postprocessor ();
+  pp->set_format_postprocessor (std::make_unique<cxx_format_postprocessor> ());
   context->set_pretty_printer (std::unique_ptr<pretty_printer> (pp));
 
   c_common_diagnostics_set_defaults (context);
@@ -542,12 +568,13 @@ dump_template_bindings (cxx_pretty_printer *pp, tree parms, tree args,
 	  /* If the template argument repeats the template parameter (T = T),
 	     skip the parameter.*/
 	  if (arg && TREE_CODE (arg) == TEMPLATE_TYPE_PARM
-		&& TREE_CODE (parm_i) == TREE_LIST
-		&& TREE_CODE (TREE_VALUE (parm_i)) == TYPE_DECL
-		&& TREE_CODE (TREE_TYPE (TREE_VALUE (parm_i)))
-		     == TEMPLATE_TYPE_PARM
-		&& DECL_NAME (TREE_VALUE (parm_i))
-		     == DECL_NAME (TREE_CHAIN (arg)))
+	      && arg == TYPE_MAIN_VARIANT (arg)
+	      && TREE_CODE (parm_i) == TREE_LIST
+	      && TREE_CODE (TREE_VALUE (parm_i)) == TYPE_DECL
+	      && (TREE_CODE (TREE_TYPE (TREE_VALUE (parm_i)))
+		  == TEMPLATE_TYPE_PARM)
+	      && (DECL_NAME (TREE_VALUE (parm_i))
+		  == DECL_NAME (TYPE_STUB_DECL (arg))))
 	    continue;
 
 	  semicolon_or_introducer ();
@@ -1255,11 +1282,36 @@ dump_global_iord (cxx_pretty_printer *pp, tree t)
   pp_printf (pp, p, DECL_SOURCE_FILE (t));
 }
 
+/* Write a representation of OpenMP "declare mapper" T to PP in a manner
+   suitable for error messages.  */
+
+static void
+dump_omp_declare_mapper (cxx_pretty_printer *pp, tree t, int flags)
+{
+  pp_string (pp, "#pragma omp declare mapper");
+  if (t == NULL_TREE || t == error_mark_node)
+    return;
+  pp_space (pp);
+  pp_cxx_left_paren (pp);
+  if (OMP_DECLARE_MAPPER_ID (t))
+    {
+      pp_cxx_tree_identifier (pp, OMP_DECLARE_MAPPER_ID (t));
+      pp_colon (pp);
+    }
+  dump_type (pp, TREE_TYPE (t), flags);
+  pp_cxx_right_paren (pp);
+}
+
 static void
 dump_simple_decl (cxx_pretty_printer *pp, tree t, tree type, int flags)
 {
   if (VAR_P (t) && DECL_NTTP_OBJECT_P (t))
     return dump_expr (pp, DECL_INITIAL (t), flags);
+
+  if (TREE_CODE (t) == VAR_DECL
+      && DECL_LANG_SPECIFIC (t)
+      && DECL_OMP_DECLARE_MAPPER_P (t))
+    return dump_omp_declare_mapper (pp, DECL_INITIAL (t), flags);
 
   if (flags & TFF_DECL_SPECIFIERS)
     {
@@ -3788,18 +3840,18 @@ cp_print_error_function (diagnostic_text_output_format &text_output,
 		    {
 		      if (text_output.show_column_p () && s.column != 0)
 			pp_printf (pp,
-				   _("    inlined from %qD at %r%s:%d:%d%R"),
+				   G_("    inlined from %qD at %r%s:%d:%d%R"),
 				   fndecl,
 				   "locus", s.file, s.line, s.column);
 		      else
 			pp_printf (pp,
-				   _("    inlined from %qD at %r%s:%d%R"),
+				   G_("    inlined from %qD at %r%s:%d%R"),
 				   fndecl,
 				   "locus", s.file, s.line);
 
 		    }
 		  else
-		    pp_printf (pp, _("    inlined from %qD"),
+		    pp_printf (pp, G_("    inlined from %qD"),
 			       fndecl);
 		}
 	    }
@@ -3825,22 +3877,22 @@ function_category (tree fn)
       && DECL_FUNCTION_MEMBER_P (fn))
     {
       if (DECL_STATIC_FUNCTION_P (fn))
-	return _("In static member function %qD");
+	return G_("In static member function %qD");
       else if (DECL_COPY_CONSTRUCTOR_P (fn))
-	return _("In copy constructor %qD");
+	return G_("In copy constructor %qD");
       else if (DECL_CONSTRUCTOR_P (fn))
-	return _("In constructor %qD");
+	return G_("In constructor %qD");
       else if (DECL_DESTRUCTOR_P (fn))
-	return _("In destructor %qD");
+	return G_("In destructor %qD");
       else if (LAMBDA_FUNCTION_P (fn))
-	return _("In lambda function");
+	return G_("In lambda function");
       else if (DECL_XOBJ_MEMBER_FUNCTION_P (fn))
-	return _("In explicit object member function %qD");
+	return G_("In explicit object member function %qD");
       else
-	return _("In member function %qD");
+	return G_("In member function %qD");
     }
   else
-    return _("In function %qD");
+    return G_("In function %qD");
 }
 
 /* Disable warnings about missing quoting in GCC diagnostics for
@@ -3867,8 +3919,8 @@ print_instantiation_full_context (diagnostic_text_output_format &text_output)
       char *indent = text_output.build_indent_prefix (true);
       pp_verbatim (text_output.get_printer (),
 		   p->list_p ()
-		   ? _("%s%s%sIn substitution of %qS:\n")
-		   : _("%s%s%sIn instantiation of %q#D:\n"),
+		   ? G_("%s%s%sIn substitution of %qS:\n")
+		   : G_("%s%s%sIn instantiation of %q#D:\n"),
 		   indent,
 		   show_file ? LOCATION_FILE (location) : "",
 		   show_file ? ": " : "",
@@ -3888,10 +3940,10 @@ print_location (diagnostic_text_output_format &text_output,
   expanded_location xloc = expand_location (loc);
   pretty_printer *const pp = text_output.get_printer ();
   if (text_output.show_column_p ())
-    pp_verbatim (pp, _("%r%s:%d:%d:%R   "),
+    pp_verbatim (pp, G_("%r%s:%d:%d:%R   "),
 		 "locus", xloc.file, xloc.line, xloc.column);
   else
-    pp_verbatim (pp, _("%r%s:%d:%R   "),
+    pp_verbatim (pp, G_("%r%s:%d:%R   "),
 		 "locus", xloc.file, xloc.line);
 }
 
@@ -3984,22 +4036,22 @@ print_instantiation_partial_context_line (diagnostic_text_output_format &text_ou
       if (t->list_p ())
 	pp_verbatim (pp,
 		     recursive_p
-		     ? _("recursively required by substitution of %qS\n")
-		     : _("required by substitution of %qS\n"),
+		     ? G_("recursively required by substitution of %qS\n")
+		     : G_("required by substitution of %qS\n"),
 		     t->get_node ());
       else
 	pp_verbatim (pp,
 		     recursive_p
-		     ? _("recursively required from %q#D\n")
-		     : _("required from %q#D\n"),
+		     ? G_("recursively required from %q#D\n")
+		     : G_("required from %q#D\n"),
 		     t->get_node ());
     }
   else
     {
       pp_verbatim (pp,
 		   recursive_p
-		   ? _("recursively required from here\n")
-		   : _("required from here\n"));
+		   ? G_("recursively required from here\n")
+		   : G_("required from here\n"));
     }
 }
 
@@ -4049,8 +4101,8 @@ print_instantiation_partial_context (diagnostic_text_output_format &text_output,
 	{
 	  auto_context_line sentinel (text_output, loc);
 	  pp_verbatim (text_output.get_printer (),
-		       _("[ skipping %d instantiation contexts,"
-			 " use -ftemplate-backtrace-limit=0 to disable ]\n"),
+		       G_("[ skipping %d instantiation contexts,"
+			  " use -ftemplate-backtrace-limit=0 to disable ]\n"),
 		       skip);
 	  do {
 	    loc = t->locus;
@@ -4101,7 +4153,7 @@ maybe_print_constexpr_context (diagnostic_text_output_format &text_output)
       pretty_printer *const pp = text_output.get_printer ();
       auto_context_line sentinel (text_output, EXPR_LOCATION (t));
       pp_verbatim (pp,
-		   _("in %<constexpr%> expansion of %qs"),
+		   G_("in %<constexpr%> expansion of %qs"),
 		   s);
       pp_newline (pp);
     }
@@ -4114,7 +4166,7 @@ print_constrained_decl_info (diagnostic_text_output_format &text_output,
 {
   auto_context_line sentinel (text_output, DECL_SOURCE_LOCATION (decl));
   pretty_printer *const pp = text_output.get_printer ();
-  pp_verbatim (pp, "required by the constraints of %q#D\n", decl);
+  pp_verbatim (pp, G_("required by the constraints of %q#D\n"), decl);
 }
 
 static void
@@ -4129,7 +4181,7 @@ print_concept_check_info (diagnostic_text_output_format &text_output,
 
   cxx_pretty_printer *const pp
     = (cxx_pretty_printer *)text_output.get_printer ();
-  pp_verbatim (pp, "required for the satisfaction of %qE", expr);
+  pp_verbatim (pp, G_("required for the satisfaction of %qE"), expr);
   if (map && map != error_mark_node)
     {
       tree subst_map = tsubst_parameter_mapping (map, args, tf_none, NULL_TREE);
@@ -4151,7 +4203,7 @@ print_constraint_context_head (diagnostic_text_output_format &text_output,
     {
       auto_context_line sentinel (text_output, input_location);
       pretty_printer *const pp = text_output.get_printer ();
-      pp_verbatim (pp, "required for constraint satisfaction\n");
+      pp_verbatim (pp, G_("required for constraint satisfaction\n"));
       return NULL_TREE;
     }
   if (DECL_P (src))
@@ -4180,11 +4232,10 @@ print_requires_expression_info (diagnostic_text_output_format &text_output,
   auto_context_line sentinel (text_output, cp_expr_loc_or_input_loc (expr));
   cxx_pretty_printer *const pp
     = static_cast <cxx_pretty_printer *> (text_output.get_printer ());
-  pp_verbatim (pp, "in requirements ");
 
   tree parms = TREE_OPERAND (expr, 0);
-  if (parms)
-    pp_verbatim (pp, "with ");
+  pp_verbatim (pp, parms ? G_("in requirements with ")
+			 : G_("in requirements "));
   while (parms)
     {
       pp_verbatim (pp, "%q#D", parms);

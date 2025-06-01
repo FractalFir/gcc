@@ -2607,6 +2607,20 @@ show_omp_node (int level, gfc_code *c)
     fprintf (dumpfile, " (%s)", c->ext.omp_clauses->critical_name);
 }
 
+static void
+show_sync_stat (struct sync_stat *sync_stat)
+{
+  if (sync_stat->stat)
+    {
+      fputs (" stat=", dumpfile);
+      show_expr (sync_stat->stat);
+    }
+  if (sync_stat->errmsg)
+    {
+      fputs (" errmsg=", dumpfile);
+      show_expr (sync_stat->errmsg);
+    }
+}
 
 /* Show a single code node and everything underneath it if necessary.  */
 
@@ -2755,20 +2769,27 @@ show_code_node (int level, gfc_code *c)
       fputs ("FAIL IMAGE ", dumpfile);
       break;
 
-    case EXEC_CHANGE_TEAM:
-      fputs ("CHANGE TEAM", dumpfile);
-      break;
-
     case EXEC_END_TEAM:
       fputs ("END TEAM", dumpfile);
+      show_sync_stat (&c->ext.sync_stat);
       break;
 
     case EXEC_FORM_TEAM:
-      fputs ("FORM TEAM", dumpfile);
+      fputs ("FORM TEAM ", dumpfile);
+      show_expr (c->expr1);
+      show_expr (c->expr2);
+      if (c->expr3)
+	{
+	  fputs (" NEW_INDEX", dumpfile);
+	  show_expr (c->expr3);
+	}
+      show_sync_stat (&c->ext.sync_stat);
       break;
 
     case EXEC_SYNC_TEAM:
-      fputs ("SYNC TEAM", dumpfile);
+      fputs ("SYNC TEAM ", dumpfile);
+      show_expr (c->expr1);
+      show_sync_stat (&c->ext.sync_stat);
       break;
 
     case EXEC_SYNC_ALL:
@@ -2913,6 +2934,7 @@ show_code_node (int level, gfc_code *c)
       fputs ("ENDIF", dumpfile);
       break;
 
+    case EXEC_CHANGE_TEAM:
     case EXEC_BLOCK:
       {
 	const char *blocktype, *sname = NULL;
@@ -2928,17 +2950,23 @@ show_code_node (int level, gfc_code *c)
 	    if (fcn && fcn->expr_type == EXPR_FUNCTION)
 	      sname = fcn->value.function.actual->expr->symtree->n.sym->name;
 	  }
+	else if (c->op == EXEC_CHANGE_TEAM)
+	  blocktype = "CHANGE TEAM";
 	else if (c->ext.block.assoc)
 	  blocktype = "ASSOCIATE";
 	else
 	  blocktype = "BLOCK";
 	show_indent ();
 	fprintf (dumpfile, "%s ", blocktype);
+	if (c->op == EXEC_CHANGE_TEAM)
+	  show_expr (c->expr1);
 	for (alist = c->ext.block.assoc; alist; alist = alist->next)
 	  {
 	    fprintf (dumpfile, " %s = ", sname ? sname : alist->name);
 	    show_expr (alist->target);
 	  }
+	if (c->op == EXEC_CHANGE_TEAM)
+	  show_sync_stat (&c->ext.block.sync_stat);
 
 	++show_level;
 	ns = c->ext.block.ns;
@@ -2948,8 +2976,13 @@ show_code_node (int level, gfc_code *c)
 	gfc_current_ns = saved_ns;
 	show_code (show_level, ns->code);
 	--show_level;
-	show_indent ();
-	fprintf (dumpfile, "END %s ", blocktype);
+	if (c->op != EXEC_CHANGE_TEAM)
+	  {
+	    /* A CHANGE_TEAM is terminated by a END_TEAM, which have its own
+	       stat and errmsg.  Therefore, let it print itself.  */
+	    show_indent ();
+	    fprintf (dumpfile, "END %s ", blocktype);
+	  }
 	break;
       }
 
@@ -3048,7 +3081,9 @@ show_code_node (int level, gfc_code *c)
       break;
 
     case EXEC_CRITICAL:
-      fputs ("CRITICAL\n", dumpfile);
+      fputs ("CRITICAL", dumpfile);
+      show_sync_stat (&c->ext.sync_stat);
+      fputc ('\n', dumpfile);
       show_code (level + 1, c->block->next);
       code_indent (level, 0);
       fputs ("END CRITICAL", dumpfile);
@@ -4336,6 +4371,8 @@ get_c_type_name (gfc_typespec *ts, gfc_array_spec *as, const char **pre,
 	  mpz_clear (sz);
 	  *asterisk = false;
 	}
+      else
+	*asterisk = true;
     }
   return ret;
 }
@@ -4380,10 +4417,11 @@ write_type (gfc_symbol *sym)
 {
   gfc_component *c;
 
-  /* Don't dump our iso c module, nor vtypes.  */
+  /* Don't dump types that are not interoperable, our very own ISO C Binding
+     module, or vtypes.  */
 
   if (sym->from_intmod == INTMOD_ISO_C_BINDING || sym->attr.flavor != FL_DERIVED
-      || sym->attr.vtype)
+      || sym->attr.vtype || !sym->attr.is_bind_c)
     return;
 
   fprintf (dumpfile, "typedef struct %s {\n", sym->name);

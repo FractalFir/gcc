@@ -82,7 +82,7 @@ DefaultASTVisitor::visit (AST::ConstGenericParam &const_param)
   if (const_param.has_type ())
     visit (const_param.get_type ());
   if (const_param.has_default_value ())
-    visit (const_param.get_default_value ());
+    visit (const_param.get_default_value_unchecked ());
 }
 
 void
@@ -108,7 +108,8 @@ DefaultASTVisitor::visit (GenericArgsBinding &binding)
 void
 DefaultASTVisitor::visit (AST::TypePathSegmentGeneric &segment)
 {
-  visit (segment.get_generic_args ());
+  if (segment.has_generic_args ())
+    visit (segment.get_generic_args ());
 }
 
 void
@@ -581,8 +582,8 @@ DefaultASTVisitor::visit (AST::WhileLetLoopExpr &expr)
   visit_outer_attrs (expr);
   for (auto &pattern : expr.get_patterns ())
     visit (pattern);
-  visit (expr.get_scrutinee_expr ());
   visit (expr.get_loop_label ());
+  visit (expr.get_scrutinee_expr ());
   visit (expr.get_loop_block ());
 }
 
@@ -714,6 +715,16 @@ DefaultASTVisitor::visit (AST::InlineAsm &expr)
 }
 
 void
+DefaultASTVisitor::visit (AST::LlvmInlineAsm &expr)
+{
+  for (auto &output : expr.get_outputs ())
+    visit (output.expr);
+
+  for (auto &input : expr.get_inputs ())
+    visit (input.expr);
+}
+
+void
 DefaultASTVisitor::visit (AST::TypeParam &param)
 {
   visit_outer_attrs (param);
@@ -817,7 +828,15 @@ DefaultASTVisitor::visit (AST::UseTreeRebind &use_tree)
 void
 DefaultASTVisitor::visit (AST::UseDeclaration &use_decl)
 {
+  visit (use_decl.get_visibility ());
   visit (use_decl.get_tree ());
+}
+
+void
+DefaultASTVisitor::visit_function_params (AST::Function &function)
+{
+  for (auto &param : function.get_function_params ())
+    visit (param);
 }
 
 void
@@ -828,8 +847,9 @@ DefaultASTVisitor::visit (AST::Function &function)
   visit (function.get_qualifiers ());
   for (auto &generic : function.get_generic_params ())
     visit (generic);
-  for (auto &param : function.get_function_params ())
-    visit (param);
+
+  visit_function_params (function);
+
   if (function.has_return_type ())
     visit (function.get_return_type ());
   if (function.has_where_clause ())

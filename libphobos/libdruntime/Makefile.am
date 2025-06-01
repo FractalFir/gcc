@@ -25,7 +25,8 @@ D_EXTRA_DFLAGS=-fpreview=dip1000 -fpreview=fieldwise -fpreview=dtorfields \
 # D flags for compilation
 AM_DFLAGS= \
 	$(phobos_lt_pic_flag) $(phobos_compiler_shared_flag) \
-	$(WARN_DFLAGS) $(CHECKING_DFLAGS) $(SECTION_FLAGS) $(CET_FLAGS)
+	$(WARN_DFLAGS) $(CHECKING_DFLAGS) $(SECTION_FLAGS) $(CET_FLAGS) \
+	$(OS_DFLAGS)
 
 # Flags for other kinds of sources
 AM_CFLAGS=$(CET_FLAGS)
@@ -444,4 +445,4 @@ DRUNTIME_DSOURCES_WINDOWS = core/sys/windows/accctrl.d \
 	core/sys/windows/winuser.d core/sys/windows/winver.d \
 	core/sys/windows/wtsapi32.d core/sys/windows/wtypes.d
 
-DRUNTIME_DISOURCES = __builtins.di __main.di
+DRUNTIME_DISOURCES = __importc_builtins.di __main.di

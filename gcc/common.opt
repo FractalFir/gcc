@@ -53,12 +53,6 @@ bool in_lto_p = false
 Variable
 enum incremental_link flag_incremental_link = INCREMENTAL_LINK_NONE
 
-; 0 means straightforward implementation of complex divide acceptable.
-; 1 means wide ranges of inputs must work for complex divide.
-; 2 means C99-like requirements for complex multiply and divide.
-Variable
-int flag_complex_method = 1
-
 Variable
 int flag_default_complex_method = 1
 
@@ -1061,6 +1055,10 @@ Driver Undocumented
 ; 20: Fix mangling of lambdas in static data member initializers.
 ;     Default in G++ 15.
 ;
+; 21: Fix noexcept lambda capture pruning.
+;     Fix C++20 layout of base with all explicitly defaulted constructors.
+;     Default in G++ 16.
+;
 ; Additional positive integers will be assigned as new versions of
 ; the ABI become the default version of the ABI.
 fabi-version=
@@ -1312,12 +1310,30 @@ fcse-skip-blocks
 Common Ignore
 Does nothing.  Preserved for backward compatibility.
 
+fcx-method=
+Common Joined RejectNegative Enum(complex_method) Var(flag_complex_method) Optimization SetByCombined
+
+Enum
+Name(complex_method) Type(int)
+
+; straightforward implementation of complex divide acceptable.
+EnumValue
+Enum(complex_method) String(limited-range) Value(0)
+
+; wide ranges of inputs must work for complex divide.
+EnumValue
+Enum(complex_method) String(fortran) Value(1)
+
+; C99-like requirements for complex multiply and divide.
+EnumValue
+Enum(complex_method) String(stdc) Value(2)
+
 fcx-limited-range
-Common Var(flag_cx_limited_range) Optimization SetByCombined
+Common Alias(fcx-method=,limited-range,stdc)
 Omit range reduction step when performing complex division.
 
 fcx-fortran-rules
-Common Var(flag_cx_fortran_rules) Optimization
+Common Alias(fcx-method=,fortran,stdc)
 Complex multiplication and division follow Fortran rules.
 
 fdata-sections
@@ -2115,6 +2131,10 @@ Perform interprocedural bitwise constant propagation.
 fipa-modref
 Common Var(flag_ipa_modref) Optimization
 Perform interprocedural modref analysis.
+
+fipa-reorder-for-locality
+Common Var(flag_ipa_reorder_for_locality) Init(0) Optimization
+Perform reordering and cloning of functions to maximize locality.
 
 fipa-profile
 Common Var(flag_ipa_profile) Init(0) Optimization

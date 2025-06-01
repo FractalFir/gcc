@@ -1095,9 +1095,10 @@ vect_recog_cond_expr_convert_pattern (vec_info *vinfo,
 				      stmt_vec_info stmt_vinfo, tree *type_out)
 {
   gassign *last_stmt = dyn_cast <gassign *> (stmt_vinfo->stmt);
-  tree lhs, match[4], temp, type, new_lhs, op2;
+  tree lhs, match[4], temp, type, new_lhs, op2, op1;
   gimple *cond_stmt;
   gimple *pattern_stmt;
+  enum tree_code code = NOP_EXPR;
 
   if (!last_stmt)
     return NULL;
@@ -1109,25 +1110,51 @@ vect_recog_cond_expr_convert_pattern (vec_info *vinfo,
   if (!gimple_cond_expr_convert_p (lhs, &match[0], NULL))
     return NULL;
 
-  vect_pattern_detected ("vect_recog_cond_expr_convert_pattern", last_stmt);
+  if (SCALAR_FLOAT_TYPE_P (TREE_TYPE (lhs)))
+    code = INTEGRAL_TYPE_P (TREE_TYPE (match[1])) ? FLOAT_EXPR : CONVERT_EXPR;
+  else if (SCALAR_FLOAT_TYPE_P (TREE_TYPE (match[1])))
+    code = FIX_TRUNC_EXPR;
 
+  op1 = match[1];
   op2 = match[2];
-  type = TREE_TYPE (match[1]);
-  if (TYPE_SIGN (type) != TYPE_SIGN (TREE_TYPE (match[2])))
+  type = TREE_TYPE (op1);
+  /* When op1/op2 is REAL_CST, the conversion must be CONVERT_EXPR from
+     SCALAR_FLOAT_TYPE_P which is restricted in gimple_cond_expr_convert_p.
+     Otherwise, the conversion could be FLOAT_EXPR, FIX_TRUNC_EXPR
+     or CONVERT_EXPR.  */
+  if (TREE_CODE (op1) == REAL_CST)
     {
-      op2 = vect_recog_temp_ssa_var (type, NULL);
-      gimple* nop_stmt = gimple_build_assign (op2, NOP_EXPR, match[2]);
-      append_pattern_def_seq (vinfo, stmt_vinfo, nop_stmt,
-			      get_vectype_for_scalar_type (vinfo, type));
+      op1 = const_unop (CONVERT_EXPR, TREE_TYPE (op2), op1);
+      type = TREE_TYPE (op2);
+      if (op1 == NULL_TREE)
+	return NULL;
     }
+  else if (TREE_CODE (op2) == REAL_CST)
+    {
+      op2 = const_unop (FLOAT_EXPR, TREE_TYPE (op1), op2);
+      if (op2 == NULL_TREE)
+	return NULL;
+    }
+  else if (code == NOP_EXPR)
+    {
+      if (TYPE_SIGN (type) != TYPE_SIGN (TREE_TYPE (match[2])))
+	{
+	  op2 = vect_recog_temp_ssa_var (type, NULL);
+	  gimple* nop_stmt = gimple_build_assign (op2, NOP_EXPR, match[2]);
+	  append_pattern_def_seq (vinfo, stmt_vinfo, nop_stmt,
+				  get_vectype_for_scalar_type (vinfo, type));
+	}
+    }
+
+  vect_pattern_detected ("vect_recog_cond_expr_convert_pattern", last_stmt);
 
   temp = vect_recog_temp_ssa_var (type, NULL);
   cond_stmt = gimple_build_assign (temp, build3 (COND_EXPR, type, match[3],
-						 match[1], op2));
+						 op1, op2));
   append_pattern_def_seq (vinfo, stmt_vinfo, cond_stmt,
 			  get_vectype_for_scalar_type (vinfo, type));
   new_lhs = vect_recog_temp_ssa_var (TREE_TYPE (lhs), NULL);
-  pattern_stmt = gimple_build_assign (new_lhs, NOP_EXPR, temp);
+  pattern_stmt = gimple_build_assign (new_lhs, code, temp);
   *type_out = STMT_VINFO_VECTYPE (stmt_vinfo);
 
   if (dump_enabled_p ())
@@ -6544,10 +6571,22 @@ vect_determine_precisions_from_users (stmt_vec_info stmt_info, gassign *stmt)
     case RSHIFT_EXPR:
       {
 	tree shift = gimple_assign_rhs2 (stmt);
-	if (TREE_CODE (shift) != INTEGER_CST
-	    || !wi::ltu_p (wi::to_widest (shift), precision))
+	unsigned int min_const_shift, max_const_shift;
+	wide_int min_shift, max_shift;
+	if (TREE_CODE (shift) == SSA_NAME
+	    && vect_get_range_info (shift, &min_shift, &max_shift)
+	    && wi::ge_p (min_shift, 0, TYPE_SIGN (TREE_TYPE (shift)))
+	    && wi::lt_p (max_shift, TYPE_PRECISION (type),
+			 TYPE_SIGN (TREE_TYPE (shift))))
+	  {
+	    min_const_shift = min_shift.to_uhwi ();
+	    max_const_shift = max_shift.to_uhwi ();
+	  }
+	else if (TREE_CODE (shift) == INTEGER_CST
+		 && wi::ltu_p (wi::to_widest (shift), precision))
+	  min_const_shift = max_const_shift = TREE_INT_CST_LOW (shift);
+	else
 	  return;
-	unsigned int const_shift = TREE_INT_CST_LOW (shift);
 	if (code == LSHIFT_EXPR)
 	  {
 	    /* Avoid creating an undefined shift.
@@ -6559,16 +6598,16 @@ vect_determine_precisions_from_users (stmt_vec_info stmt_info, gassign *stmt)
 	       of vectorization.  This sort of thing should really be
 	       handled before vectorization.  */
 	    operation_precision = MAX (stmt_info->min_output_precision,
-				       const_shift + 1);
+				       max_const_shift + 1);
 	    /* We need CONST_SHIFT fewer bits of the input.  */
-	    min_input_precision = (MAX (operation_precision, const_shift)
-				   - const_shift);
+	    min_input_precision = (MAX (operation_precision, max_const_shift)
+				   - min_const_shift);
 	  }
 	else
 	  {
 	    /* We need CONST_SHIFT extra bits to do the operation.  */
 	    operation_precision = (stmt_info->min_output_precision
-				   + const_shift);
+				   + max_const_shift);
 	    min_input_precision = operation_precision;
 	  }
 	break;

@@ -3,7 +3,6 @@
 
 #include <format>
 #include <vector>
-#include <chrono> // For _Widen
 #include <testsuite_hooks.h>
 
 static_assert(!std::formattable<std::vector<bool>::reference, int>);
@@ -21,7 +20,7 @@ is_format_string_for(const char* str, Args&&... args)
   }
 }
 
-#define WIDEN_(C, S) ::std::chrono::__detail::_Widen<C>(S, L##S)
+#define WIDEN_(C, S) ::std::__format::_Widen<C>(S, L##S)
 #define WIDEN(S) WIDEN_(_CharT, S)
 
 void
@@ -57,6 +56,12 @@ test_output()
 
   res = std::format(WIDEN("{:=^#7X}"), v[1]);
   VERIFY( res == WIDEN("==0X0==") );
+
+  res = std::format(WIDEN("{}"), v);
+  VERIFY( res == WIDEN("[true, false]") );
+
+  res = std::format(WIDEN("{::d}"), v);
+  VERIFY( res == WIDEN("[1, 0]") );
 }
 
 int main()

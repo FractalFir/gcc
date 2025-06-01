@@ -41,7 +41,7 @@
 #include <bits/max_size_type.h>
 #include <bits/version.h>
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
 # include <bits/utility.h> // for tuple_element_t
 #endif
 
@@ -1085,7 +1085,9 @@ namespace ranges
 #if __glibcxx_ranges_to_container // C++ >= 23
   struct from_range_t { explicit from_range_t() = default; };
   inline constexpr from_range_t from_range{};
+#endif
 
+#if __glibcxx_containers_ranges // C++ >= 23
 /// @cond undocumented
   template<typename _T1, typename _T2>
     struct pair;
@@ -1101,11 +1103,11 @@ namespace __detail
   // 4223. Deduction guides for maps are mishandling tuples and references
   template<ranges::input_range _Range>
     using __range_key_type
-      = remove_const_t<tuple_element_t<0, ranges::range_value_t<_Range>>>;
+      = remove_cvref_t<tuple_element_t<0, ranges::range_value_t<_Range>>>;
 
   template<ranges::input_range _Range>
     using __range_mapped_type
-      = tuple_element_t<1, ranges::range_value_t<_Range>>;
+      = remove_cvref_t<tuple_element_t<1, ranges::range_value_t<_Range>>>;
 
   // The allocator's value_type for map-like containers.
   template<ranges::input_range _Range>

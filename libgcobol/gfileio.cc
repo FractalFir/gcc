@@ -27,20 +27,24 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <ctype.h>
-#include <ctype.h>
+
 #include <err.h>
-#include <errno.h>
 #include <fcntl.h>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 #include <unistd.h>
+
+#include <cctype>
+#include <cerrno>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+
 #include <algorithm>
+#include <vector>
 
 #include "config.h"
+#include "libgcobol-fp.h"
 
 #include "ec.h"
 #include "io.h"
@@ -252,7 +256,7 @@ establish_status(cblc_file_t *file, long read_location)
                                   0,
                                   truncation_e,
                                   NULL);
-  // Set the EC-EXCEPTION accoring the status code
+  // Set the EC-EXCEPTION according to the status code
   __gg__set_exception_file(file);
   }
 
@@ -298,6 +302,7 @@ void
 __gg__file_init(
   cblc_file_t   *file,
   const char    *name,
+  size_t         symbol_table_index,
   cblc_field_t **keys,
   int           *key_numbers,
   int           *uniques,
@@ -318,6 +323,7 @@ __gg__file_init(
   if( !(file->flags & file_flag_initialized_e) )
     {
     file->name                = strdup(name);
+    file->symbol_table_index  = symbol_table_index;
     file->filename            = NULL ;
     file->file_pointer        = NULL ;
     file->keys                = keys;
@@ -631,7 +637,7 @@ done:
   memcpy(file->default_record->data, stash, file->default_record->capacity);
   free(stash);
   fseek(file->file_pointer, starting_pos, SEEK_SET);
-
+  file->prior_op = file_op_delete;
   establish_status(file, -1);
   }
 
@@ -740,6 +746,7 @@ done:
   memcpy(file->default_record->data, stash, file->default_record->capacity);
   free(stash);
   fseek(file->file_pointer, starting_pos, SEEK_SET);
+  file->prior_op = file_op_delete;
   establish_status(file, -1);
   }
 
@@ -1094,9 +1101,11 @@ done:
     memcpy(file->default_record->data, stash, file->record_area_min);
     free(stash);
     stash = NULL;
+    file->prior_op = file_op_delete;
     position_state_restore(file, position_state);
     }
 
+  file->prior_op = file_op_delete;
   establish_status(file, -1);
   }
 
@@ -1123,7 +1132,6 @@ __io__file_delete(cblc_file_t *file, bool is_random)
     {
     file->flags |= file_flag_existed_e;
     }
-  file->prior_op = file_op_delete;
   }
 
 static void
@@ -1528,12 +1536,12 @@ done:
     file->flags |= file_flag_existed_e;
     }
 
+  file->prior_op = file_op_start;
   establish_status(file, fpos);
   if( file->io_status < FhNotOkay )
     {
     file->flags |= file_flag_existed_e;
     }
-  file->prior_op = file_op_start;
   }
 
 static void
@@ -1678,10 +1686,9 @@ sequential_file_rewrite( cblc_file_t *file, size_t length )
 done:
   // Per the standard, return the file location pointer back to whence it came:
   fseek(file->file_pointer, starting_position, SEEK_SET);
-  if( handle_ferror(file, __func__, "fseek() error") )
-    {
-    goto done;
-    }
+  handle_ferror(file, __func__, "fseek() error");
+  file->prior_op = file_op_rewrite;
+  file->prior_op = file_op_rewrite;
   establish_status(file, starting_position);
   }
 
@@ -1797,10 +1804,8 @@ relative_file_rewrite_varying( cblc_file_t *file, bool is_random )
 done:
   // Per the standard, return the file location pointer back to whence it came:
   fseek(file->file_pointer, starting_position, SEEK_SET);
-  if( handle_ferror(file, __func__, "fseek() error") )
-    {
-    goto done;
-    }
+  handle_ferror(file, __func__, "fseek() error"); 
+  file->prior_op = file_op_rewrite;
   establish_status(file, starting_position);
   }
 
@@ -1900,10 +1905,8 @@ relative_file_rewrite( cblc_file_t *file, size_t length, bool is_random )
 done:
   // Per the standard, return the file location pointer back to whence it came:
   fseek(file->file_pointer, starting_position, SEEK_SET);
-  if( handle_ferror(file, __func__, "fseek() error") )
-    {
-    goto done;
-    }
+  handle_ferror(file, __func__, "fseek() error"); 
+  file->prior_op = file_op_rewrite;
   establish_status(file, starting_position);
   }
 
@@ -2172,7 +2175,7 @@ done:
     {
     position_state_restore(file, position_state);
     }
-
+  file->prior_op = file_op_rewrite;
   establish_status(file, fpos);
   file->prior_read_location = -1;
   }
@@ -2203,7 +2206,6 @@ __io__file_rewrite(cblc_file_t *file, size_t length, bool is_random)
     {
     file->flags |= file_flag_existed_e;
     }
-  file->prior_op = file_op_rewrite;
   }
 
 static void
@@ -2351,6 +2353,7 @@ relative_file_write_varying(cblc_file_t    *file,
     }
 
 done:
+  file->prior_op = file_op_write;
   establish_status(file, -1);
   }
 
@@ -2484,6 +2487,7 @@ relative_file_write(cblc_file_t    *file,
     }
 
 done:
+  file->prior_op = file_op_write;
   establish_status(file, -1);
   }
 
@@ -2671,6 +2675,7 @@ sequential_file_write(cblc_file_t    *file,
     }
 
 done:
+  file->prior_op = file_op_write;
   establish_status(file, -1);
   }
 
@@ -2838,6 +2843,7 @@ indexed_file_write( cblc_file_t    *file,
   file_indexed_update_indices(file, position_to_write);
 
 done:
+  file->prior_op = file_op_write;
   establish_status(file, -1);
   }
 
@@ -2924,12 +2930,12 @@ __io__file_write(   cblc_file_t    *file,
       break;
     }
 done:
+  file->prior_op = file_op_write;
   establish_status(file, -1);
   if( file->io_status < FhNotOkay )
     {
     file->flags |= file_flag_existed_e;
     }
-  file->prior_op = file_op_write;
   }
 
 static void
@@ -3073,6 +3079,7 @@ line_sequential_file_read(  cblc_file_t *file)
                                     NULL);
     }
 done:
+  file->prior_op = file_op_read;
   establish_status(file, fpos);
   }
 
@@ -3185,6 +3192,7 @@ sequential_file_read(  cblc_file_t  *file)
                                     NULL);
     }
 done:
+  file->prior_op = file_op_read;
   establish_status(file, fpos);
   return characters_read;
   }
@@ -3372,6 +3380,7 @@ done:
                                     truncation_e,
                                     NULL);
     }
+  file->prior_op = file_op_read;
   establish_status(file, fpos);
   }
 
@@ -3570,6 +3579,7 @@ done:
                                     truncation_e,
                                     NULL);
     }
+  file->prior_op = file_op_read;
   establish_status(file, fpos);
   }
 
@@ -3763,6 +3773,7 @@ done:
                                     truncation_e,
                                     NULL);
     }
+  file->prior_op = file_op_read;
   establish_status(file, fpos);
   }
 
@@ -3791,6 +3802,7 @@ __io__file_read(cblc_file_t *file,
         {
         file->io_status = FsReadError; // "46"
         }
+      file->prior_op = file_op_read;
       establish_status(file, -1);
       return;
       }
@@ -3809,12 +3821,14 @@ __io__file_read(cblc_file_t *file,
           {
           file->io_status = FsReadError; // "46"
           }
+        file->prior_op = file_op_read;
         establish_status(file, -1);
         }
       else
         {
         // This is a format 2 read
         file->io_status = FsNotFound; // "23"
+        file->prior_op = file_op_read;
         establish_status(file, -1);
         }
       return;
@@ -3825,6 +3839,7 @@ __io__file_read(cblc_file_t *file,
     {
     // Attempting to read a file that isn't open
     file->io_status = FsReadNotOpen;    // "47"
+    file->prior_op = file_op_read;
     establish_status(file, -1);
     return;
     }
@@ -3833,6 +3848,7 @@ __io__file_read(cblc_file_t *file,
     {
     // The file is open, but not in INPUT or I-O mode:
     file->io_status = FsReadNotOpen;    // "47"
+    file->prior_op = file_op_read;
     establish_status(file, -1);
     return;
     }
@@ -3875,7 +3891,6 @@ __io__file_read(cblc_file_t *file,
     {
     file->flags |= file_flag_existed_e;
     }
-  file->prior_op = file_op_read;
   }
 
 static void
@@ -4054,34 +4069,6 @@ file_indexed_close(cblc_file_t *file)
   file->supplemental = NULL;
   }
 
-static void
-report_open_failure(const char *type,
-                    const char *structure_name,
-                    const char *filename)
-  {
-  bool quiet = true;
-  if( !quiet )
-    {
-    if( getenv(filename) )
-      {
-      fprintf(stderr,
-              "Trying to 'OPEN %s %s %s -> \"%s\"', which doesn't exist\n",
-              type,
-              structure_name,
-              filename,
-              getenv(filename));
-      }
-    else
-      {
-      fprintf(stderr,
-              "Trying to 'OPEN %s %s \"%s\"', which doesn't exist\n",
-              type,
-              structure_name,
-              filename);
-      }
-    }
-  }
-
 extern "C"
 void
 __gg__file_reopen(cblc_file_t *file, int mode_char)
@@ -4210,7 +4197,6 @@ __gg__file_reopen(cblc_file_t *file, int mode_char)
           }
         else
           {
-          report_open_failure("INPUT", file->name, trimmed_name);
           file->io_status = FsNoFile;    // "35"
           goto done;
           }
@@ -4252,7 +4238,6 @@ __gg__file_reopen(cblc_file_t *file, int mode_char)
         else
           {
           // Trying to extend a non-optional non-existing file is against the rules
-          report_open_failure("EXTEND", file->name, trimmed_name);
           file->io_status = FsNoFile;    // "35"
           goto done;
           }
@@ -4268,7 +4253,6 @@ __gg__file_reopen(cblc_file_t *file, int mode_char)
           }
         else
           {
-          report_open_failure("I-O", file->name, trimmed_name);
           file->io_status = FsNoFile;    // "35"
           goto done;
           }
@@ -4357,8 +4341,8 @@ __io__file_open(cblc_file_t *file,
 
     __gg__file_reopen(file, mode_char);
     }
-  establish_status(file, -1);
   file->prior_op = file_op_open;
+  establish_status(file, -1);
   }
 
 static void
@@ -4417,8 +4401,8 @@ __io__file_close( cblc_file_t *file, int how )
   file->filename = NULL;
 
   done:
-  establish_status(file, fpos);
   file->prior_op = file_op_close;
+  establish_status(file, fpos);
   }
 
 static cblc_file_t *stashed;

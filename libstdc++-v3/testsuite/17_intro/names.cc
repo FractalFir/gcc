@@ -142,6 +142,10 @@
 #define try_emplace (
 #endif
 
+#if __cplusplus < 202002L
+#define ranges (
+#endif
+
 // These clash with newlib so don't use them.
 # define __lockable		cannot be used as an identifier
 # define __null_sentinel	cannot be used as an identifier
@@ -244,6 +248,10 @@
 #undef r
 #undef x
 #undef y
+// <stdlib.h> defines drand48_data::a
+#undef a
+// <sys/localedef.h> defines _LC_weight_t::n
+#undef n
 // <sys/poll.h> defines pollfd_ext::u on AIX 7.3
 #undef u
 // <sys/var.h> defines vario::v
@@ -319,6 +327,7 @@
 
 #ifdef __sun__
 // <fenv.h> defines these as members of fex_numeric_t
+#undef i
 #undef l
 #undef f
 #undef d
@@ -328,8 +337,11 @@
 #undef ptr
 // <sys/timespec_util.h> uses this as parameter
 #undef r
-// <stdlib.h> uses this as member of drand48_data
+// <stdlib.h> uses these as members of drand48_data
+#undef a
 #undef x
+// <string.h> defines this as a parameter of timingsafe_memcmp
+#undef n
 #endif
 
 #ifdef __VXWORKS__

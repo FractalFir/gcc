@@ -30,6 +30,9 @@ compilation is specified by a string called a "spec".  */
 #define INCLUDE_STRING
 #include "config.h"
 #include "system.h"
+#ifdef HOST_HAS_PERSONALITY_ADDR_NO_RANDOMIZE
+#include <sys/personality.h>
+#endif
 #include "coretypes.h"
 #include "multilib.h" /* before tm.h */
 #include "tm.h"
@@ -7744,55 +7747,58 @@ print_configuration (FILE *file)
 
 #define RETRY_ICE_ATTEMPTS 3
 
-/* Returns true if FILE1 and FILE2 contain equivalent data, 0 otherwise.  */
+/* Returns true if FILE1 and FILE2 contain equivalent data, 0 otherwise.
+   If lines start with 0x followed by 1-16 lowercase hexadecimal digits
+   followed by a space, ignore anything before that space.  These are
+   typically function addresses from libbacktrace and those can differ
+   due to ASLR.  */
 
 static bool
 files_equal_p (char *file1, char *file2)
 {
-  struct stat st1, st2;
-  off_t n, len;
-  int fd1, fd2;
-  const int bufsize = 8192;
-  char *buf = XNEWVEC (char, bufsize);
+  FILE *f1 = fopen (file1, "rb");
+  FILE *f2 = fopen (file2, "rb");
+  char line1[256], line2[256];
 
-  fd1 = open (file1, O_RDONLY);
-  fd2 = open (file2, O_RDONLY);
-
-  if (fd1 < 0 || fd2 < 0)
-    goto error;
-
-  if (fstat (fd1, &st1) < 0 || fstat (fd2, &st2) < 0)
-    goto error;
-
-  if (st1.st_size != st2.st_size)
-    goto error;
-
-  for (n = st1.st_size; n; n -= len)
+  bool line_start = true;
+  while (fgets (line1, sizeof (line1), f1))
     {
-      len = n;
-      if ((int) len > bufsize / 2)
-	len = bufsize / 2;
-
-      if (read (fd1, buf, len) != (int) len
-	  || read (fd2, buf + bufsize / 2, len) != (int) len)
-	{
-	  goto error;
-	}
-
-      if (memcmp (buf, buf + bufsize / 2, len) != 0)
+      if (!fgets (line2, sizeof (line2), f2))
 	goto error;
+      char *p1 = line1, *p2 = line2;
+      if (line_start
+	  && line1[0] == '0'
+	  && line1[1] == 'x'
+	  && line2[0] == '0'
+	  && line2[1] == 'x')
+	{
+	  int i, j;
+	  for (i = 0; i < 16; ++i)
+	    if (!ISXDIGIT (line1[2 + i]) || ISUPPER (line1[2 + i]))
+	      break;
+	  for (j = 0; j < 16; ++j)
+	    if (!ISXDIGIT (line2[2 + j]) || ISUPPER (line2[2 + j]))
+	      break;
+	  if (i && line1[2 + i] == ' ' && j && line2[2 + j] == ' ')
+	    {
+	      p1 = line1 + i + 3;
+	      p2 = line2 + j + 3;
+	    }
+	}
+      if (strcmp (p1, p2) != 0)
+	goto error;
+      line_start = strchr (line1, '\n') != NULL;
     }
+  if (fgets (line2, sizeof (line2), f2))
+    goto error;
 
-  free (buf);
-  close (fd1);
-  close (fd2);
-
+  fclose (f1);
+  fclose (f2);
   return 1;
 
 error:
-  free (buf);
-  close (fd1);
-  close (fd2);
+  fclose (f1);
+  fclose (f2);
   return 0;
 }
 
@@ -7999,6 +8005,10 @@ try_generate_repro (const char **argv)
     new_argv[out_arg + 1] = "-";
   else
     new_argv[out_arg] = "-o-";
+
+#ifdef HOST_HAS_PERSONALITY_ADDR_NO_RANDOMIZE
+  personality (personality (0xffffffffU) | ADDR_NO_RANDOMIZE);
+#endif
 
   int status;
   for (attempt = 0; attempt < RETRY_ICE_ATTEMPTS; ++attempt)
@@ -9737,6 +9747,103 @@ default_arg (const char *p, int len)
   return 0;
 }
 
+/* Use multilib_dir as key to find corresponding multilib_os_dir and
+   multiarch_dir.  */
+
+static void
+find_multilib_os_dir_by_multilib_dir (const char *multilib_dir,
+				      const char **p_multilib_os_dir,
+				      const char **p_multiarch_dir)
+{
+  const char *p = multilib_select;
+  unsigned int this_path_len;
+  const char *this_path;
+  int ok = 0;
+
+  while (*p != '\0')
+    {
+      /* Ignore newlines.  */
+      if (*p == '\n')
+	{
+	  ++p;
+	  continue;
+	}
+
+      /* Get the initial path.  */
+      this_path = p;
+      while (*p != ' ')
+	{
+	  if (*p == '\0')
+	    {
+	      fatal_error (input_location, "multilib select %qs %qs is invalid",
+			   multilib_select, multilib_reuse);
+	    }
+	  ++p;
+	}
+      this_path_len = p - this_path;
+
+      ok = 0;
+
+      /* Skip any arguments, we don't care at this stage.  */
+      while (*++p != ';');
+
+      if (this_path_len != 1
+	  || this_path[0] != '.')
+	{
+	  char *new_multilib_dir = XNEWVEC (char, this_path_len + 1);
+	  char *q;
+
+	  strncpy (new_multilib_dir, this_path, this_path_len);
+	  new_multilib_dir[this_path_len] = '\0';
+	  q = strchr (new_multilib_dir, ':');
+	  if (q != NULL)
+	    *q = '\0';
+
+	  if (strcmp (new_multilib_dir, multilib_dir) == 0)
+	    ok = 1;
+	}
+
+      /* Found matched multilib_dir, update multilib_os_dir and
+	 multiarch_dir.  */
+      if (ok)
+	{
+	  const char *q = this_path, *end = this_path + this_path_len;
+
+	  while (q < end && *q != ':')
+	    q++;
+	  if (q < end)
+	    {
+	      const char *q2 = q + 1, *ml_end = end;
+	      char *new_multilib_os_dir;
+
+	      while (q2 < end && *q2 != ':')
+		q2++;
+	      if (*q2 == ':')
+		ml_end = q2;
+	      if (ml_end - q == 1)
+		*p_multilib_os_dir = xstrdup (".");
+	      else
+		{
+		  new_multilib_os_dir = XNEWVEC (char, ml_end - q);
+		  memcpy (new_multilib_os_dir, q + 1, ml_end - q - 1);
+		  new_multilib_os_dir[ml_end - q - 1] = '\0';
+		  *p_multilib_os_dir = new_multilib_os_dir;
+		}
+
+	      if (q2 < end && *q2 == ':')
+		{
+		  char *new_multiarch_dir = XNEWVEC (char, end - q2);
+		  memcpy (new_multiarch_dir, q2 + 1, end - q2 - 1);
+		  new_multiarch_dir[end - q2 - 1] = '\0';
+		  *p_multiarch_dir = new_multiarch_dir;
+		}
+	      break;
+	    }
+	}
+      ++p;
+    }
+}
+
 /* Work out the subdirectory to use based on the options. The format of
    multilib_select is a list of elements. Each element is a subdirectory
    name followed by a list of options followed by a semicolon. The format
@@ -10015,7 +10122,16 @@ set_multilib_dir (void)
       multilib_os_dir = NULL;
     }
   else if (multilib_dir != NULL && multilib_os_dir == NULL)
-    multilib_os_dir = multilib_dir;
+    {
+      /* Give second chance to search matched multilib_os_dir again by matching
+	 the multilib_dir since some target may use TARGET_COMPUTE_MULTILIB
+	 hook rather than the builtin way.  */
+      find_multilib_os_dir_by_multilib_dir (multilib_dir, &multilib_os_dir,
+					    &multiarch_dir);
+
+      if (multilib_os_dir == NULL)
+	multilib_os_dir = multilib_dir;
+    }
 }
 
 /* Print out the multiple library subdirectory selection

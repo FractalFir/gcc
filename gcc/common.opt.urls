@@ -31,8 +31,9 @@ UrlSuffix(gcc/Optimize-Options.html#index-Og)
 Oz
 UrlSuffix(gcc/Optimize-Options.html#index-Oz)
 
-Q
-UrlSuffix(gcc/Developer-Options.html#index-Q)
+; skipping UrlSuffix for 'Q' due to multiple URLs:
+;   duplicate: 'gcc/Developer-Options.html#index-Q-1'
+;   duplicate: 'gcc/Overall-Options.html#index-Q'
 
 Qn
 UrlSuffix(gcc/System-V-Options.html#index-Qn)
@@ -501,6 +502,9 @@ UrlSuffix(gcc/Optimize-Options.html#index-fcse-follow-jumps)
 fcse-skip-blocks
 UrlSuffix(gcc/Optimize-Options.html#index-fcse-skip-blocks)
 
+fcx-method=
+UrlSuffix(gcc/Optimize-Options.html#index-fcx-method)
+
 fcx-limited-range
 UrlSuffix(gcc/Optimize-Options.html#index-fcx-limited-range)
 
@@ -867,6 +871,9 @@ UrlSuffix(gcc/Optimize-Options.html#index-fipa-bit-cp)
 
 fipa-modref
 UrlSuffix(gcc/Optimize-Options.html#index-fipa-modref)
+
+fipa-reorder-for-locality
+UrlSuffix(gcc/Optimize-Options.html#index-fipa-reorder-for-locality)
 
 fipa-profile
 UrlSuffix(gcc/Optimize-Options.html#index-fipa-profile)
@@ -1458,6 +1465,9 @@ UrlSuffix(gcc/Optimize-Options.html#index-ftree-coalesce-vars)
 
 ftree-copy-prop
 UrlSuffix(gcc/Optimize-Options.html#index-ftree-copy-prop)
+
+ftree-cselim
+UrlSuffix(gcc/Optimize-Options.html#index-ftree-cselim)
 
 ftree-switch-conversion
 UrlSuffix(gcc/Optimize-Options.html#index-ftree-switch-conversion)

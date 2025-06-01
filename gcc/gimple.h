@@ -3561,7 +3561,7 @@ gimple_call_set_nothrow (gcall *s, bool nothrow_p)
 /* Return true if S is a nothrow call.  */
 
 inline bool
-gimple_call_nothrow_p (gcall *s)
+gimple_call_nothrow_p (const gcall *s)
 {
   return (gimple_call_flags (s) & ECF_NOTHROW) != 0;
 }
@@ -3716,6 +3716,7 @@ gimple_cond_code (const gimple *gs)
 inline void
 gimple_cond_set_code (gcond *gs, enum tree_code code)
 {
+  gcc_gimple_checking_assert (TREE_CODE_CLASS (code) == tcc_comparison);
   gs->subcode = code;
 }
 
@@ -3829,7 +3830,7 @@ gimple_cond_false_label (const gcond *gs)
 }
 
 
-/* Set the conditional COND_STMT to be of the form 'if (1 == 0)'.  */
+/* Set the conditional COND_STMT to be of the form 'if (0 != 0)'.  */
 
 inline void
 gimple_cond_make_false (gcond *gs)
@@ -3840,7 +3841,7 @@ gimple_cond_make_false (gcond *gs)
 }
 
 
-/* Set the conditional COND_STMT to be of the form 'if (1 == 1)'.  */
+/* Set the conditional COND_STMT to be of the form 'if (1 != 0)'.  */
 
 inline void
 gimple_cond_make_true (gcond *gs)
@@ -3850,7 +3851,7 @@ gimple_cond_make_true (gcond *gs)
   gs->subcode = NE_EXPR;
 }
 
-/* Check if conditional statemente GS is of the form 'if (1 == 1)',
+/* Check if conditional statement GS is of the form 'if (1 == 1)',
   'if (0 == 0)', 'if (1 != 0)' or 'if (0 != 1)' */
 
 inline bool
@@ -3872,6 +3873,21 @@ gimple_cond_true_p (const gcond *gs)
   if (code == EQ_EXPR && lhs == rhs)
       return true;
 
+  return false;
+}
+
+/* Check if conditional statement GS is in the caonical form of 'if (1 != 0)'. */
+
+inline bool
+gimple_cond_true_canonical_p (const gcond *gs)
+{
+  tree lhs = gimple_cond_lhs (gs);
+  tree rhs = gimple_cond_rhs (gs);
+  tree_code code = gimple_cond_code (gs);
+  if (code == NE_EXPR
+      && lhs == boolean_true_node
+      && rhs == boolean_false_node)
+    return true;
   return false;
 }
 
@@ -3897,6 +3913,21 @@ gimple_cond_false_p (const gcond *gs)
   if (code == EQ_EXPR && lhs != rhs)
       return true;
 
+  return false;
+}
+
+/* Check if conditional statement GS is in the caonical form of 'if (0 != 0)'. */
+
+inline bool
+gimple_cond_false_canonical_p (const gcond *gs)
+{
+  tree lhs = gimple_cond_lhs (gs);
+  tree rhs = gimple_cond_rhs (gs);
+  tree_code code = gimple_cond_code (gs);
+  if (code == NE_EXPR
+      && lhs == boolean_false_node
+      && rhs == boolean_false_node)
+    return true;
   return false;
 }
 

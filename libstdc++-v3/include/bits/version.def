@@ -679,8 +679,6 @@ ftms = {
   values = {
     v = 201703;
     cxxmin = 17;
-    hosted = yes;
-    gthread = yes;
   };
 };
 
@@ -959,6 +957,7 @@ ftms = {
 
 ftms = {
   name = make_obj_using_allocator;
+  no_stdname = true;
   values = {
     // Not specified by C++20, used internally
     v = 201811;
@@ -995,6 +994,15 @@ ftms = {
     v = 202002;
     cxxmin = 20;
     extra_cond = "__glibcxx_concepts";
+  };
+};
+
+ftms = {
+  name = mdspan;
+  no_stdname = true; // FIXME: remove
+  values = {
+    v = 1; // FIXME: 202207
+    cxxmin = 23;
   };
 };
 
@@ -1273,7 +1281,12 @@ ftms = {
 ftms = {
   name = constrained_equality;
   values = {
-    v = 202411; // FIXME: 202403 for P2944R3, ??? for P3379R0
+    v = 202411;
+    cxxmin = 23;
+    extra_cond = "__glibcxx_three_way_comparison";
+  };
+  values = {
+    v = 202403;
     cxxmin = 20;
     extra_cond = "__glibcxx_three_way_comparison";
   };
@@ -1350,7 +1363,7 @@ ftms = {
     v = 201907;
     cxxmin = 20;
     hosted = yes;
-    extra_cond = "__glibcxx_atomic_wait || _GLIBCXX_HAVE_POSIX_SEMAPHORE";
+    extra_cond = "__glibcxx_atomic_wait";
   };
 };
 
@@ -1411,9 +1424,8 @@ ftms = {
   // 202207 P2286R8 Formatting Ranges
   // 202207 P2585R1 Improving default container formatting
   // LWG3750 Too many papers bump __cpp_lib_format
-  no_stdname = true; // TODO remove
   values = {
-    v = 1; // TODO 202207
+    v = 202207;
     cxxmin = 23;
     hosted = yes;
   };
@@ -1510,14 +1522,14 @@ ftms = {
   };
 };
 
-//ftms = {
-//  name = containers_ranges;
-//  values = {
-//    v = 202202;
-//    cxxmin = 23;
-//    hosted = yes;
-//  };
-//};
+ftms = {
+  name = containers_ranges;
+  values = {
+    v = 202202;
+    cxxmin = 23;
+    hosted = yes;
+  };
+};
 
 ftms = {
   name = ranges_to_container;
@@ -1736,6 +1748,23 @@ ftms = {
 };
 
 ftms = {
+  name = copyable_function;
+  values = {
+    v = 202306;
+    cxxmin = 26;
+    hosted = yes;
+  };
+};
+
+ftms = {
+  name = function_ref;
+  values = {
+    v = 202306;
+    cxxmin = 26;
+  };
+};
+
+ftms = {
   name = out_ptr;
   values = {
     v = 202311;
@@ -1937,6 +1966,15 @@ ftms = {
     v = 202207;
     cxxmin = 20;
     extra_cond = "__cpp_modules";
+  };
+};
+
+ftms = {
+  name = indirect;
+  values = {
+    v = 202502;
+    cxxmin = 26;
+    hosted = yes;
   };
 };
 

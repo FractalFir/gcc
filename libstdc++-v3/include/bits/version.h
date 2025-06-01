@@ -751,7 +751,7 @@
 #undef __glibcxx_want_parallel_algorithm
 
 #if !defined(__cpp_lib_scoped_lock)
-# if (__cplusplus >= 201703L) && defined(_GLIBCXX_HAS_GTHREADS) && _GLIBCXX_HOSTED
+# if (__cplusplus >= 201703L)
 #  define __glibcxx_scoped_lock 201703L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_scoped_lock)
 #   define __cpp_lib_scoped_lock 201703L
@@ -1074,7 +1074,6 @@
 # if (__cplusplus >= 202002L) && (__cpp_concepts)
 #  define __glibcxx_make_obj_using_allocator 201811L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_make_obj_using_allocator)
-#   define __cpp_lib_make_obj_using_allocator 201811L
 #  endif
 # endif
 #endif /* !defined(__cpp_lib_make_obj_using_allocator) && defined(__glibcxx_want_make_obj_using_allocator) */
@@ -1114,6 +1113,15 @@
 # endif
 #endif /* !defined(__cpp_lib_span) && defined(__glibcxx_want_span) */
 #undef __glibcxx_want_span
+
+#if !defined(__cpp_lib_mdspan)
+# if (__cplusplus >= 202100L)
+#  define __glibcxx_mdspan 1L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_mdspan)
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_mdspan) && defined(__glibcxx_want_mdspan) */
+#undef __glibcxx_want_mdspan
 
 #if !defined(__cpp_lib_ssize)
 # if (__cplusplus >= 202002L)
@@ -1406,10 +1414,15 @@
 #undef __glibcxx_want_constexpr_vector
 
 #if !defined(__cpp_lib_constrained_equality)
-# if (__cplusplus >= 202002L) && (__glibcxx_three_way_comparison)
+# if (__cplusplus >= 202100L) && (__glibcxx_three_way_comparison)
 #  define __glibcxx_constrained_equality 202411L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_constrained_equality)
 #   define __cpp_lib_constrained_equality 202411L
+#  endif
+# elif (__cplusplus >= 202002L) && (__glibcxx_three_way_comparison)
+#  define __glibcxx_constrained_equality 202403L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_constrained_equality)
+#   define __cpp_lib_constrained_equality 202403L
 #  endif
 # endif
 #endif /* !defined(__cpp_lib_constrained_equality) && defined(__glibcxx_want_constrained_equality) */
@@ -1486,7 +1499,7 @@
 #undef __glibcxx_want_move_iterator_concept
 
 #if !defined(__cpp_lib_semaphore)
-# if (__cplusplus >= 202002L) && _GLIBCXX_HOSTED && (__glibcxx_atomic_wait || _GLIBCXX_HAVE_POSIX_SEMAPHORE)
+# if (__cplusplus >= 202002L) && _GLIBCXX_HOSTED && (__glibcxx_atomic_wait)
 #  define __glibcxx_semaphore 201907L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_semaphore)
 #   define __cpp_lib_semaphore 201907L
@@ -1557,8 +1570,9 @@
 
 #if !defined(__cpp_lib_format_ranges)
 # if (__cplusplus >= 202100L) && _GLIBCXX_HOSTED
-#  define __glibcxx_format_ranges 1L
+#  define __glibcxx_format_ranges 202207L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_format_ranges)
+#   define __cpp_lib_format_ranges 202207L
 #  endif
 # endif
 #endif /* !defined(__cpp_lib_format_ranges) && defined(__glibcxx_want_format_ranges) */
@@ -1663,6 +1677,16 @@
 # endif
 #endif /* !defined(__cpp_lib_reference_from_temporary) && defined(__glibcxx_want_reference_from_temporary) */
 #undef __glibcxx_want_reference_from_temporary
+
+#if !defined(__cpp_lib_containers_ranges)
+# if (__cplusplus >= 202100L) && _GLIBCXX_HOSTED
+#  define __glibcxx_containers_ranges 202202L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_containers_ranges)
+#   define __cpp_lib_containers_ranges 202202L
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_containers_ranges) && defined(__glibcxx_want_containers_ranges) */
+#undef __glibcxx_want_containers_ranges
 
 #if !defined(__cpp_lib_ranges_to_container)
 # if (__cplusplus >= 202100L) && _GLIBCXX_HOSTED
@@ -1924,6 +1948,26 @@
 #endif /* !defined(__cpp_lib_move_only_function) && defined(__glibcxx_want_move_only_function) */
 #undef __glibcxx_want_move_only_function
 
+#if !defined(__cpp_lib_copyable_function)
+# if (__cplusplus >  202302L) && _GLIBCXX_HOSTED
+#  define __glibcxx_copyable_function 202306L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_copyable_function)
+#   define __cpp_lib_copyable_function 202306L
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_copyable_function) && defined(__glibcxx_want_copyable_function) */
+#undef __glibcxx_want_copyable_function
+
+#if !defined(__cpp_lib_function_ref)
+# if (__cplusplus >  202302L)
+#  define __glibcxx_function_ref 202306L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_function_ref)
+#   define __cpp_lib_function_ref 202306L
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_function_ref) && defined(__glibcxx_want_function_ref) */
+#undef __glibcxx_want_function_ref
+
 #if !defined(__cpp_lib_out_ptr)
 # if (__cplusplus >= 202100L)
 #  define __glibcxx_out_ptr 202311L
@@ -2158,5 +2202,15 @@
 # endif
 #endif /* !defined(__cpp_lib_modules) && defined(__glibcxx_want_modules) */
 #undef __glibcxx_want_modules
+
+#if !defined(__cpp_lib_indirect)
+# if (__cplusplus >  202302L) && _GLIBCXX_HOSTED
+#  define __glibcxx_indirect 202502L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_indirect)
+#   define __cpp_lib_indirect 202502L
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_indirect) && defined(__glibcxx_want_indirect) */
+#undef __glibcxx_want_indirect
 
 #undef __glibcxx_want_all

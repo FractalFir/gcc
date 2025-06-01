@@ -57,6 +57,11 @@ public:
 
   bool empty () const { return ident.empty (); }
 
+  bool operator== (const Identifier &other) const
+  {
+    return ident == other.ident;
+  }
+
 private:
   std::string ident;
   location_t loc;
@@ -1018,6 +1023,7 @@ public:
   }
 
   DelimType get_delim_type () const { return delim_type; }
+  location_t get_locus () const { return locus; }
 };
 
 /* Forward decl - definition moved to rust-expr.h as it requires LiteralExpr
@@ -1263,6 +1269,7 @@ public:
     Await,
     AsyncBlock,
     InlineAsm,
+    LlvmInlineAsm,
     Identifier,
     FormatArgs,
     MacroInvocation,
@@ -2095,6 +2102,19 @@ template <> struct less<Rust::Identifier>
     return lhs.as_string () < rhs.as_string ();
   }
 };
+
+template <> struct hash<Rust::Identifier>
+{
+  std::size_t operator() (const Rust::Identifier &k) const
+  {
+    using std::hash;
+    using std::size_t;
+    using std::string;
+
+    return hash<string> () (k.as_string ()) ^ (hash<int> () (k.get_locus ()));
+  }
+};
+
 } // namespace std
 
 #endif

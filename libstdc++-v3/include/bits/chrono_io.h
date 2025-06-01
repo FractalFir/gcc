@@ -57,21 +57,7 @@ namespace chrono
 /// @cond undocumented
 namespace __detail
 {
-  // STATICALLY-WIDEN, see C++20 [time.general]
-  // It doesn't matter for format strings (which can only be char or wchar_t)
-  // but this returns the narrow string for anything that isn't wchar_t. This
-  // is done because const char* can be inserted into any ostream type, and
-  // will be widened at runtime if necessary.
-  template<typename _CharT>
-    consteval auto
-    _Widen(const char* __narrow, const wchar_t* __wide)
-    {
-      if constexpr (is_same_v<_CharT, wchar_t>)
-	return __wide;
-      else
-	return __narrow;
-    }
-#define _GLIBCXX_WIDEN_(C, S) ::std::chrono::__detail::_Widen<C>(S, L##S)
+#define _GLIBCXX_WIDEN_(C, S) ::std::__format::_Widen<C>(S, L##S)
 #define _GLIBCXX_WIDEN(S) _GLIBCXX_WIDEN_(_CharT, S)
 
   template<typename _Period, typename _CharT>
@@ -221,21 +207,15 @@ namespace __format
   template<typename _CharT>
     struct _ChronoSpec : _Spec<_CharT>
     {
-      basic_string_view<_CharT> _M_chrono_specs;
-
-      // Use one of the reserved bits in __format::_Spec<C>.
+      // Placed in tail-padding of __format::_Spec<C>.
       // This indicates that a locale-dependent conversion specifier such as
       // %a is used in the chrono-specs. This is not the same as the
       // _Spec<C>::_M_localized member which indicates that "L" was present
       // in the format-spec, e.g. "{:L%a}" is localized and locale-specific,
       // but "{:L}" is only localized and "{:%a}" is only locale-specific.
-      constexpr bool
-      _M_locale_specific() const noexcept
-      { return this->_M_reserved; }
+      unsigned _M_locale_specific : 1;
 
-      constexpr void
-      _M_locale_specific(bool __b) noexcept
-      { this->_M_reserved = __b; }
+      basic_string_view<_CharT> _M_chrono_specs;
     };
 
   // Represents the information provided by a chrono type.
@@ -502,7 +482,7 @@ namespace __format
 	  _M_spec = __spec;
 	  _M_spec._M_chrono_specs
 		 = __string_view(__chrono_specs, __first - __chrono_specs);
-	  _M_spec._M_locale_specific(__locale_specific);
+	  _M_spec._M_locale_specific = __locale_specific;
 
 	  return __first;
 	}
@@ -517,9 +497,7 @@ namespace __format
 	_M_format(const _Tp& __t, _FormatContext& __fc,
 		  bool __is_neg = false) const
 	{
-	  auto __first = _M_spec._M_chrono_specs.begin();
-	  const auto __last = _M_spec._M_chrono_specs.end();
-	  if (__first == __last)
+	  if (_M_spec._M_chrono_specs.empty())
 	    return _M_format_to_ostream(__t, __fc, __is_neg);
 
 #if defined _GLIBCXX_USE_NL_LANGINFO_L && __CHAR_BIT__ == 8
@@ -528,7 +506,7 @@ namespace __format
 	  //       of chrono types is underspecified
 	  if constexpr (is_same_v<_CharT, char>)
 	    if constexpr (__unicode::__literal_encoding_is_utf8())
-	      if (_M_spec._M_localized && _M_spec._M_locale_specific())
+	      if (_M_spec._M_localized && _M_spec._M_locale_specific)
 		{
 		  extern locale __with_encoding_conversion(const locale&);
 
@@ -539,28 +517,28 @@ namespace __format
 		    __fc._M_loc =  __with_encoding_conversion(__loc);
 		}
 #endif
-
-	  _Sink_iter<_CharT> __out;
-	  __format::_Str_sink<_CharT> __sink;
-	  bool __write_direct = false;
-	  if constexpr (is_same_v<typename _FormatContext::iterator,
-				  _Sink_iter<_CharT>>)
-	    {
-	      if (_M_spec._M_width_kind == __format::_WP_none)
-		{
-		  __out = __fc.out();
-		  __write_direct = true;
-		}
-	      else
-		__out = __sink.out();
-	    }
-	  else
-	    __out = __sink.out();
-
 	  // formatter<duration> passes the correct value of __is_neg
 	  // for durations but for hh_mm_ss we decide it here.
 	  if constexpr (__is_specialization_of<_Tp, chrono::hh_mm_ss>)
 	    __is_neg = __t.is_negative();
+
+	  const size_t __padwidth = _M_spec._M_get_width(__fc);
+	  if (__padwidth == 0)
+	    return _M_format_to(__t, __fc.out(), __fc, __is_neg);
+
+	  using _Out = typename _FormatContext::iterator;
+	  _Padding_sink<_Out, _CharT> __sink(__fc.out(), __padwidth);
+	  _M_format_to(__t, __sink.out(), __fc, __is_neg);
+	  return __sink._M_finish(_M_spec._M_align, _M_spec._M_fill);
+	}
+
+      template<typename _Tp, typename _Out, typename _FormatContext>
+	_Out
+	_M_format_to(const _Tp& __t, _Out __out, _FormatContext& __fc,
+		     bool __is_neg) const
+	{
+	  auto __first = _M_spec._M_chrono_specs.begin();
+	  const auto __last = _M_spec._M_chrono_specs.end();
 
 	  auto __print_sign = [&__is_neg, &__out] {
 	    if constexpr (chrono::__is_duration_v<_Tp>
@@ -713,15 +691,7 @@ namespace __format
 		}
 	    }
 	  while (__first != __last);
-
-	  if constexpr (is_same_v<typename _FormatContext::iterator,
-				  _Sink_iter<_CharT>>)
-	    if (__write_direct)
-	      return __out;
-
-	  auto __str = std::move(__sink).get();
-	  return __format::__write_padded_as_spec(__str, __str.size(),
-						  __fc, _M_spec);
+	  return std::move(__out);
 	}
 
       _ChronoSpec<_CharT> _M_spec;
@@ -790,6 +760,9 @@ namespace __format
 		  // sys_time with period greater or equal to days:
 		  if constexpr (is_convertible_v<_Tp, chrono::sys_days>)
 		    __os << _S_date(__t);
+		  // Or a local_time with period greater or equal to days:
+		  else if constexpr (is_convertible_v<_Tp, chrono::local_days>)
+		    __os << _S_date(__t);
 		  else // Or it's formatted as "{:L%F %T}":
 		    {
 		      auto __days = chrono::floor<chrono::days>(__t);
@@ -830,7 +803,7 @@ namespace __format
 	  //       of chrono types is underspecified
 	  if constexpr (is_same_v<_CharT, char>)
 	    if constexpr (__unicode::__literal_encoding_is_utf8())
-	      if (_M_spec._M_localized && _M_spec._M_locale_specific()
+	      if (_M_spec._M_localized && _M_spec._M_locale_specific
 		    && __loc != locale::classic())
 		{
 		  extern string_view

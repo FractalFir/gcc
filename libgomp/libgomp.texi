@@ -258,7 +258,7 @@ The OpenMP 4.5 specification is fully supported.
       device memory mapped by an array section @tab P @tab
 @item Mapping of Fortran pointer and allocatable variables, including pointer
       and allocatable components of variables
-      @tab P @tab Mapping of vars with allocatable components unsupported
+      @tab Y @tab
 @item @code{defaultmap} extensions @tab Y @tab
 @item @code{declare mapper} directive @tab N @tab
 @item @code{omp_get_supported_active_levels} routine @tab Y @tab
@@ -4763,6 +4763,7 @@ acceleration device.
                                 present on device.
 * acc_memcpy_to_device::        Copy host memory to device memory.
 * acc_memcpy_from_device::      Copy device memory to host memory.
+* acc_memcpy_device::           Copy memory within a device.
 * acc_attach::                  Let device pointer point to device-pointer target.
 * acc_detach::                  Let device pointer point to host-pointer target.
 
@@ -5837,6 +5838,44 @@ This function copies device memory specified by device address of
 
 
 
+@node acc_memcpy_device
+@section @code{acc_memcpy_device} -- Copy memory within a device.
+@table @asis
+@item @emph{Description}
+This function copies device memory from one memory location to another
+on the current device.  It copies @var{bytes} bytes of data from the device
+address, specified by @var{data_dev_src}, to the device address
+@var{data_dev_dest}.  The @code{_async} version performs the transfer
+asnychronously using the queue associated with @var{async_arg}.
+
+@item @emph{C/C++}:
+@multitable @columnfractions .20 .80
+@item @emph{Prototype}: @tab @code{void acc_memcpy_device(d_void* data_dev_dest,}
+@item                   @tab @code{d_void* data_dev_src, size_t bytes);}
+@item @emph{Prototype}: @tab @code{void acc_memcpy_device_async(d_void* data_dev_dest,}
+@item                   @tab @code{d_void* data_dev_src, size_t bytes, int async_arg);}
+@end multitable
+
+@item @emph{Fortran}:
+@multitable @columnfractions .20 .80
+@item @emph{Interface}: @tab @code{subroutine acc_memcpy_device(data_dev_dest, &}
+@item                   @tab @code{data_dev_src, bytes)}
+@item @emph{Interface}: @tab @code{subroutine acc_memcpy_device_async(data_dev_dest, &}
+@item                   @tab @code{data_dev_src, bytes, async_arg)}
+@item                   @tab @code{type(c_ptr), value :: data_dev_dest}
+@item                   @tab @code{type(c_ptr), value :: data_dev_src}
+@item                   @tab @code{integer(c_size_t), value :: bytes}
+@item                   @tab @code{integer(acc_handle_kind), value :: async_arg}
+@end multitable
+
+@item @emph{Reference}:
+@uref{https://www.openacc.org, OpenACC specification v2.6}, section
+3.2.33.  @uref{https://www.openacc.org, OpenACC specification v3.3}, section
+3.2.28.
+@end table
+
+
+
 @node acc_attach
 @section @code{acc_attach} -- Let device pointer point to device-pointer target.
 @table @asis
@@ -6888,7 +6927,7 @@ The implementation remark:
       @code{device(ancestor:1)}) are processed serially per @code{target} region
       such that the next reverse offload region is only executed after the previous
       one returned.
-@item OpenMP code that has a @code{requires} directive with
+@item OpenMP code that has a @code{requires} directive with @code{self_maps} or
       @code{unified_shared_memory} is only supported if all AMD GPUs have the
       @code{HSA_AMD_SYSTEM_INFO_SVM_ACCESSIBLE_BY_DEFAULT} property; for
       discrete GPUs, this may require setting the @code{HSA_XNACK} environment
@@ -6944,6 +6983,9 @@ or string (str) data type, call @code{omp_get_interop_int},
 @code{omp_get_interop_ptr}, or @code{omp_get_interop_str}, respectively.
 Note that @code{device_num} is the OpenMP device number
 while @code{device} is the HIP device number or HSA device handle.
+
+When using HIP with C and C++, the @code{__HIP_PLATFORM_AMD__} preprocessor
+macro must be defined before including the HIP header files.
 
 For the API routine call, add the prefix @code{omp_ipr_} to the property name;
 for instance:
@@ -7045,7 +7087,7 @@ The implementation remark:
       Per device, reverse offload regions are processed serially such that
       the next reverse offload region is only executed after the previous
       one returned.
-@item OpenMP code that has a @code{requires} directive with
+@item OpenMP code that has a @code{requires} directive with @code{self_maps} or
       @code{unified_shared_memory} runs on nvptx devices if and only if
       all of those support the @code{pageableMemoryAccess} property;@footnote{
       @uref{https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#um-requirements}}
@@ -7106,6 +7148,9 @@ or string (str) data type, call @code{omp_get_interop_int},
 @code{omp_get_interop_ptr}, or @code{omp_get_interop_str}, respectively.
 Note that @code{device_num} is the OpenMP device number while @code{device}
 is the CUDA, CUDA Driver, or HIP device number.
+
+When using HIP with C and C++, the @code{__HIP_PLATFORM_NVIDIA__} preprocessor
+macro must be defined before including the HIP header files.
 
 For the API routine call, add the prefix @code{omp_ipr_} to the property name;
 for instance:

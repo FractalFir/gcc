@@ -1,3 +1,201 @@
+2025-05-27  Jakub Jelinek  <jakub@redhat.com>
+
+	* config/t-softfp (softfp_bid_list): Don't guard with
+	$(enable_decimal_float) == bid.
+	* soft-fp/bitint.h (__bid_pow10bitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_pow10bitint.
+	(__dpd_d2bbitint, __dpd_b2dbitint): Declare.
+	* soft-fp/bitintpow10.c (__dpd_d2bbitint, __dpd_b2dbitint): New
+	variables.
+	* soft-fp/fixsdbitint.c (__bid_fixsdbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixsdbitint.
+	Add DPD support.  Fix big-endian support.
+	* soft-fp/fixddbitint.c (__bid_fixddbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixddbitint.
+	Add DPD support.  Fix big-endian support.
+	* soft-fp/fixtdbitint.c (__bid_fixtdbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixtdbitint.
+	Add DPD support.  Fix big-endian support.
+	* soft-fp/fixsdti.c (__bid_fixsdbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixsdbitint.
+	(__bid_fixsdti): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine to
+	__dpd_fixsdti.
+	* soft-fp/fixddti.c (__bid_fixddbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixddbitint.
+	(__bid_fixddti): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine to
+	__dpd_fixddti.
+	* soft-fp/fixtdti.c (__bid_fixtdbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixtdbitint.
+	(__bid_fixtdti): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine to
+	__dpd_fixtdti.
+	* soft-fp/fixunssdti.c (__bid_fixsdbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixsdbitint.
+	(__bid_fixunssdti): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine
+	to __dpd_fixunssdti.
+	* soft-fp/fixunsddti.c (__bid_fixddbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixddbitint.
+	(__bid_fixunsddti): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine
+	to __dpd_fixunsddti.
+	* soft-fp/fixunstdti.c (__bid_fixtdbitint): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_fixtdbitint.
+	(__bid_fixunstdti): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine
+	to __dpd_fixunstdti.
+	* soft-fp/floatbitintsd.c (__bid_floatbitintsd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitintsd.
+	Add DPD support.  Avoid calling __builtin_clzll with 0 argument.  Fix
+	big-endian support.
+	* soft-fp/floatbitintdd.c (__bid_floatbitintdd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitintdd.
+	Add DPD support.  Avoid calling __builtin_clzll with 0 argument.  Fix
+	big-endian support.
+	* soft-fp/floatbitinttd.c (__bid_floatbitinttd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitinttd.
+	Add DPD support.  Avoid calling __builtin_clzll with 0 argument.  Fix
+	big-endian support.
+	* soft-fp/floattisd.c (__bid_floatbitintsd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitintsd.
+	(__bid_floattisd): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine to
+	__dpd_floattisd.
+	* soft-fp/floattidd.c (__bid_floatbitintdd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitintdd.
+	(__bid_floattidd): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine to
+	__dpd_floattidd.
+	* soft-fp/floattitd.c (__bid_floatbitinttd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitinttd.
+	(__bid_floattitd): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine to
+	__dpd_floattitd.
+	* soft-fp/floatuntisd.c (__bid_floatbitintsd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitintsd.
+	(__bid_floatuntisd): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine
+	to __dpd_floatuntisd.
+	* soft-fp/floatuntidd.c (__bid_floatbitintdd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitintdd.
+	(__bid_floatuntidd): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine
+	to __dpd_floatuntidd.
+	* soft-fp/floatuntitd.c (__bid_floatbitinttd): For
+	!defined(ENABLE_DECIMAL_BID_FORMAT) redefine to __dpd_floatbitinttd.
+	(__bid_floatuntitd): For !defined(ENABLE_DECIMAL_BID_FORMAT) redefine
+	to __dpd_floatuntitd.
+
+2025-05-25  LIU Hao  <lh_mouse@126.com>
+
+	* config.host: Enable mcf thread model for aarch64-*-mingw*.
+	* config/i386/t-mingw-mcfgthread: Move to...
+	* config/mingw/t-mingw-mcfgthread: ...here.
+
+2025-05-21  Alexandre Oliva  <oliva@adacore.com>
+
+	* config/gthr-vxworks-thread.c: Include string.h for memset.
+
+2025-05-20  Jakub Jelinek  <jakub@redhat.com>
+
+	* libgcc-std.ver.in (GCC_14.0.0): Remove bitint related exports
+	from here.
+	* config/i386/libgcc-glibc.ver (GCC_14.0.0): Add them here.
+	* config/i386/libgcc-darwin.ver (GCC_14.0.0): Likewise.
+	* config/i386/libgcc-sol2.ver (GCC_14.0.0): Likewise.
+	* config/aarch64/libgcc-softfp.ver (GCC_14.0.0): Likewise.
+
+2025-05-20  Jakub Jelinek  <jakub@redhat.com>
+
+	* libgcc2.c (bitint_reduce_prec): For big endian
+	__LIBGCC_BITINT_ORDER__ use ++*p and --*p instead of
+	++p and --p.
+	* soft-fp/bitint.h (bitint_reduce_prec): Likewise.
+
+2025-05-17  Oleg Endo  <olegendo@gcc.gnu.org>
+
+	* config/sh/lib1funcs.S (ashiftrt_r4_32): Increase alignment.
+	(movemem): Force alignment of the mova intruction.
+
+2025-04-25  Thomas Schwinge  <tschwinge@baylibre.com>
+
+	PR target/119853
+	PR target/119854
+	* config/gcn/crt0.c (_fini_array): Call
+	'__GCC_offload___cxa_finalize'.
+	* config/nvptx/gbl-ctors.c (__static_do_global_dtors): Likewise.
+
+2025-04-19  Jiaxun Yang  <jiaxun.yang@flygoat.com>
+
+	PR target/118257
+	* config/sh/sfp-machine.h (_FPU_GETCW): Implement with builtin.
+	(_FPU_SETCW): Likewise.
+	(FP_EX_ENABLE_SHIFT): Derive from arch spec.
+	(FP_EX_CAUSE_SHIFT): Likewise.
+	(FP_RND_MASK): Likewise.
+	(FP_EX_INVALID): Likewise.
+	(FP_EX_DIVZERO): Likewise.
+	(FP_EX_ALL): Likewise.
+	(FP_EX_OVERFLOW): Likewise.
+	(FP_EX_UNDERFLOW): Likewise.
+	(FP_EX_INEXACT): Likewise.
+	(_FP_DECL_EX): Declear default FCSR value.
+	(FP_RND_NEAREST): Derive from arch spec.
+	(FP_RND_ZERO): Likewise.
+	(FP_INIT_ROUNDMODE): Likewise.
+	(FP_ROUNDMODE): Likewise.
+	(FP_TRAPPING_EXCEPTIONS): Likewise.
+	(FP_HANDLE_EXCEPTIONS): Implement with _FPU_SETCW.
+
+2025-04-19  Jiaxun Yang  <jiaxun.yang@flygoat.com>
+
+	PR target/111814
+	* config/sh/sfp-machine.h (_FP_NANFRAC_B): Reverse signaling bit.
+	(_FP_NANFRAC_H): Likewise.
+	(_FP_NANFRAC_S): Likewise.
+	(_FP_NANFRAC_D): Likewise.
+	(_FP_NANFRAC_Q): Likewise.
+	(_FP_KEEPNANFRACP): Enable for target.
+	(_FP_QNANNEGATEDP): Enable for target.
+	(_FP_CHOOSENAN): Port from MIPS.
+
+2025-04-14  Thomas Schwinge  <tschwinge@baylibre.com>
+
+	PR target/118794
+	* config/gcn/unwind-gcn.c (_Unwind_Resume): New.
+	* config/nvptx/unwind-nvptx.c (_Unwind_Resume): Likewise.
+
+2025-04-14  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR target/119673
+	* config/i386/gthr-win32.h (__GTHREAD_ALWAYS_INLINE): New macro.
+	(__GTHREAD_INLINE): Likewise.
+	(__GTHR_W32_InterlockedCompareExchange): Delete.
+	(__gthread_active_p): Mark as __GTHREAD_INLINE instead of
+	static inline.
+	(__gthread_create): Likewise.
+	(__gthread_join): Likewise.
+	(__gthread_self): Likewise.
+	(__gthread_detach): Likewise.
+	(__gthread_equal): Likewise.
+	(__gthread_yield): Likewise.
+	(__gthread_once): Likewise.
+	(__gthread_key_create): Likewise.
+	(__gthread_key_delete): Likewise.
+	(__gthread_getspecific): Likewise.
+	(__gthread_setspecific): Likewise.
+	(__gthread_mutex_init_function): Likewise.
+	(__gthread_mutex_destroy): Likewise.
+	(__gthread_mutex_lock): Likewise.
+	(__gthread_mutex_trylock): Likewise.
+	(__gthread_mutex_timedlock): Likewise.
+	(__gthread_mutex_unlock): Likewise.
+	(__gthread_recursive_mutex_trylock): Likewise.
+	(__gthread_cond_init_function): Likewise.
+	(__gthread_cond_broadcast): Likewise.
+	(__gthread_cond_signal): Likewise.
+	(__gthread_cond_wait): Likewise.
+	(__gthread_cond_timedwait): Likewise.
+	(__GTHREAD_WIN32_INLINE): Likewise.
+	(__GTHREAD_WIN32_COND_INLINE): Likewise.
+	(__gthread_recursive_mutex_init_function): Likewise.
+	(__gthread_recursive_mutex_destroy): Likewise.
+	(__gthread_recursive_mutex_lock): Likewise.
+	(__gthread_recursive_mutex_unlock): Likewise.
+	(__gthread_cond_destroy): Likewise.
+	(__gthread_cond_wait_recursive): Likewise.
+
 2025-04-08  Thomas Schwinge  <tschwinge@baylibre.com>
 
 	* config/gcn/unwind-gcn.c (_Unwind_RaiseException)

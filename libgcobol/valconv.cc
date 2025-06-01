@@ -29,11 +29,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <ctype.h>
-#include <stdio.h>
-#include <string.h>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+
 #include <algorithm>
 #include <unordered_map>
+#include <vector>
 
 #include "ec.h"
 #include "common-defs.h"
@@ -67,7 +69,7 @@ __gg__realloc_if_necessary(char **dest, size_t *dest_size, size_t new_size)
     new_size |= new_size>>4;
     new_size |= new_size>>8;
     new_size |= new_size>>16;
-    new_size |= new_size>>32;
+    new_size |= (new_size>>16)>>16;
     *dest_size = new_size + 1;
     *dest = (char *)realloc(*dest, *dest_size);
     }
@@ -853,14 +855,14 @@ got_float:
         }
       else
         {
-        const char *decimal_location = index(dest, __gg__decimal_point);
+        const char *decimal_location = strchr(dest, __gg__decimal_point);
         if( !decimal_location )
           {
-          decimal_location = index(dest, ascii_v);
+          decimal_location = strchr(dest, ascii_v);
           }
         if( !decimal_location )
           {
-          decimal_location = index(dest, ascii_V);
+          decimal_location = strchr(dest, ascii_V);
           }
         if( !decimal_location )
           {

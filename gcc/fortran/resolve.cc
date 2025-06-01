@@ -533,7 +533,8 @@ gfc_resolve_formal_arglist (gfc_symbol *proc)
 	    }
 	}
     }
-
+  if (sym)
+    sym->formal_resolved = 1;
   gfc_current_ns = orig_current_ns;
 }
 
@@ -3190,6 +3191,13 @@ gfc_pure_function (gfc_expr *e, const char **name)
 	     || e->value.function.isym->elemental;
       *name = e->value.function.isym->name;
     }
+  else if (e->symtree && e->symtree->n.sym && e->symtree->n.sym->attr.dummy)
+    {
+      /* The function has been resolved, but esym is not yet set.
+	 This can happen with functions as dummy argument.  */
+      pure = e->symtree->n.sym->attr.pure;
+      *name = e->symtree->n.sym->name;
+    }
   else
     {
       /* Implicit functions are not pure.  */
@@ -3253,14 +3261,30 @@ static bool check_pure_function (gfc_expr *e)
      gfc_do_concurrent_flag = 0 when the check for an impure function
      occurs.  Check the stack to see if the source code has a nested
      BLOCK construct.  */
+
   for (stack = cs_base; stack; stack = stack->prev)
     {
-      if (stack->current->op == EXEC_BLOCK) saw_block = true;
+      if (!saw_block && stack->current->op == EXEC_BLOCK)
+	{
+	  saw_block = true;
+	  continue;
+	}
+
       if (saw_block && stack->current->op == EXEC_DO_CONCURRENT)
 	{
-	  gfc_error ("Reference to impure function at %L inside a "
-		     "DO CONCURRENT", &e->where);
-	  return false;
+	  bool is_pure;
+	  is_pure = (e->value.function.isym
+		     && (e->value.function.isym->pure
+			 || e->value.function.isym->elemental))
+		    || (e->value.function.esym
+			&& (e->value.function.esym->attr.pure
+			    || e->value.function.esym->attr.elemental));
+	  if (!is_pure)
+	    {
+	      gfc_error ("Reference to impure function at %L inside a "
+			 "DO CONCURRENT", &e->where);
+	      return false;
+	    }
 	}
     }
 
@@ -3449,7 +3473,7 @@ resolve_function (gfc_expr *expr)
 			   &expr->where, &sym->formal_at);
 	    }
 	}
-      else
+      else if (!sym->formal_resolved)
 	{
 	  gfc_get_formal_from_actual_arglist (sym, expr->value.function.actual);
 	  sym->formal_at = expr->where;
@@ -3656,16 +3680,29 @@ pure_subroutine (gfc_symbol *sym, const char *name, locus *loc)
 
   /* A BLOCK construct within a DO CONCURRENT construct leads to
      gfc_do_concurrent_flag = 0 when the check for an impure subroutine
-     occurs.  Check the stack to see if the source code has a nested
-     BLOCK construct.  */
+     occurs.  Walk up the stack to see if the source code has a nested
+     construct.  */
+
   for (stack = cs_base; stack; stack = stack->prev)
     {
-      if (stack->current->op == EXEC_BLOCK) saw_block = true;
+      if (stack->current->op == EXEC_BLOCK)
+	{
+	  saw_block = true;
+	  continue;
+	}
+
       if (saw_block && stack->current->op == EXEC_DO_CONCURRENT)
 	{
-	  gfc_error ("Subroutine call at %L in a DO CONCURRENT block "
-		     "is not PURE", loc);
-	  return false;
+
+	  bool is_pure = true;
+	  is_pure = sym->attr.pure || sym->attr.elemental;
+
+	  if (!is_pure)
+	    {
+	      gfc_error ("Subroutine call at %L in a DO CONCURRENT block "
+			 "is not PURE", loc);
+	      return false;
+	    }
 	}
     }
 
@@ -3997,7 +4034,7 @@ resolve_call (gfc_code *c)
 			   &c->loc, &csym->formal_at);
 	    }
 	}
-      else
+      else if (!csym->formal_resolved)
 	{
 	  gfc_get_formal_from_actual_arglist (csym, c->ext.actual);
 	  csym->formal_at = c->loc;
@@ -11448,6 +11485,109 @@ resolve_lock_unlock_event (gfc_code *code)
     }
 }
 
+static void
+resolve_team_argument (gfc_expr *team)
+{
+  gfc_resolve_expr (team);
+  if (team->rank != 0 || team->ts.type != BT_DERIVED
+      || team->ts.u.derived->from_intmod != INTMOD_ISO_FORTRAN_ENV
+      || team->ts.u.derived->intmod_sym_id != ISOFORTRAN_TEAM_TYPE)
+    {
+      gfc_error ("TEAM argument at %L must be a scalar expression "
+		 "of type TEAM_TYPE from the intrinsic module ISO_FORTRAN_ENV",
+		 &team->where);
+    }
+}
+
+static void
+resolve_scalar_variable_as_arg (const char *name, bt exp_type, int exp_kind,
+				gfc_expr *e)
+{
+  gfc_resolve_expr (e);
+  if (e
+      && (e->ts.type != exp_type || e->ts.kind < exp_kind || e->rank != 0
+	  || e->expr_type != EXPR_VARIABLE))
+    gfc_error ("%s argument at %L must be a scalar %s variable of at least "
+	       "kind %d", name, &e->where, gfc_basic_typename (exp_type),
+	       exp_kind);
+}
+
+void
+gfc_resolve_sync_stat (struct sync_stat *sync_stat)
+{
+  resolve_scalar_variable_as_arg ("STAT=", BT_INTEGER, 2, sync_stat->stat);
+  resolve_scalar_variable_as_arg ("ERRMSG=", BT_CHARACTER,
+				  gfc_default_character_kind,
+				  sync_stat->errmsg);
+}
+
+static void
+resolve_scalar_argument (const char *name, bt exp_type, int exp_kind,
+			 gfc_expr *e)
+{
+  gfc_resolve_expr (e);
+  if (e
+      && (e->ts.type != exp_type || e->ts.kind < exp_kind || e->rank != 0))
+    gfc_error ("%s argument at %L must be a scalar %s of at least kind %d",
+	       name, &e->where, gfc_basic_typename (exp_type), exp_kind);
+}
+
+static void
+resolve_form_team (gfc_code *code)
+{
+  resolve_scalar_argument ("TEAM NUMBER", BT_INTEGER, gfc_default_integer_kind,
+			   code->expr1);
+  resolve_team_argument (code->expr2);
+  resolve_scalar_argument ("NEW_INDEX=", BT_INTEGER, gfc_default_integer_kind,
+			   code->expr3);
+  gfc_resolve_sync_stat (&code->ext.sync_stat);
+}
+
+static void resolve_block_construct (gfc_code *);
+
+static void
+resolve_change_team (gfc_code *code)
+{
+  resolve_team_argument (code->expr1);
+  gfc_resolve_sync_stat (&code->ext.block.sync_stat);
+  resolve_block_construct (code);
+  /* Map the coarray bounds as selected.  */
+  for (gfc_association_list *a = code->ext.block.assoc; a; a = a->next)
+    if (a->ar)
+      {
+	gfc_array_spec *src = a->ar->as, *dst;
+	if (a->st->n.sym->ts.type == BT_CLASS)
+	  dst = CLASS_DATA (a->st->n.sym)->as;
+	else
+	  dst = a->st->n.sym->as;
+	dst->corank = src->corank;
+	dst->cotype = src->cotype;
+	for (int i = 0; i < src->corank; ++i)
+	  {
+	    dst->lower[dst->rank + i] = src->lower[i];
+	    dst->upper[dst->rank + i] = src->upper[i];
+	    src->lower[i] = src->upper[i] = nullptr;
+	  }
+	gfc_free_array_spec (src);
+	free (a->ar);
+	a->ar = nullptr;
+	dst->resolved = false;
+	gfc_resolve_array_spec (dst, 0);
+      }
+}
+
+static void
+resolve_sync_team (gfc_code *code)
+{
+  resolve_team_argument (code->expr1);
+  gfc_resolve_sync_stat (&code->ext.sync_stat);
+}
+
+static void
+resolve_end_team (gfc_code *code)
+{
+  gfc_resolve_sync_stat (&code->ext.sync_stat);
+}
 
 static void
 resolve_critical (gfc_code *code)
@@ -11456,6 +11596,8 @@ resolve_critical (gfc_code *code)
   gfc_symbol *lock_type;
   char name[GFC_MAX_SYMBOL_LEN];
   static int serial = 0;
+
+  gfc_resolve_sync_stat (&code->ext.sync_stat);
 
   if (flag_coarray != GFC_FCOARRAY_LIB)
     return;
@@ -11580,8 +11722,8 @@ resolve_branch (gfc_st_label *label, gfc_code *code)
 
   if (code->here == label)
     {
-      gfc_warning (0,
-		   "Branch at %L may result in an infinite loop", &code->loc);
+      gfc_warning (0, "Branch at %L may result in an infinite loop",
+		   &code->loc);
       return;
     }
 
@@ -11603,6 +11745,10 @@ resolve_branch (gfc_st_label *label, gfc_code *code)
 	  else if (stack->current->op == EXEC_DO_CONCURRENT
 		   && bitmap_bit_p (stack->reachable_labels, label->value))
 	    gfc_error ("GOTO statement at %L leaves DO CONCURRENT construct "
+		      "for label at %L", &code->loc, &label->where);
+	  else if (stack->current->op == EXEC_CHANGE_TEAM
+		   && bitmap_bit_p (stack->reachable_labels, label->value))
+	    gfc_error ("GOTO statement at %L leaves CHANGE TEAM construct "
 		      "for label at %L", &code->loc, &label->where);
 	}
 
@@ -13240,23 +13386,6 @@ deferred_op_assign (gfc_code **code, gfc_namespace *ns)
 }
 
 
-static bool
-check_team (gfc_expr *team, const char *intrinsic)
-{
-  if (team->rank != 0
-      || team->ts.type != BT_DERIVED
-      || team->ts.u.derived->from_intmod != INTMOD_ISO_FORTRAN_ENV
-      || team->ts.u.derived->intmod_sym_id != ISOFORTRAN_TEAM_TYPE)
-    {
-      gfc_error ("TEAM argument to %qs at %L must be a scalar expression "
-		 "of type TEAM_TYPE", intrinsic, &team->where);
-      return false;
-    }
-
-  return true;
-}
-
-
 /* Given a block of code, recursively resolve everything pointed to by this
    code block.  */
 
@@ -13445,22 +13574,19 @@ start:
 	  break;
 
 	case EXEC_FORM_TEAM:
-	  if (code->expr1 != NULL
-	      && (code->expr1->ts.type != BT_INTEGER || code->expr1->rank))
-	    gfc_error ("TEAM NUMBER argument to FORM TEAM at %L must be "
-		       "a scalar INTEGER", &code->expr1->where);
-	  check_team (code->expr2, "FORM TEAM");
+	  resolve_form_team (code);
 	  break;
 
 	case EXEC_CHANGE_TEAM:
-	  check_team (code->expr1, "CHANGE TEAM");
+	  resolve_change_team (code);
 	  break;
 
 	case EXEC_END_TEAM:
+	  resolve_end_team (code);
 	  break;
 
 	case EXEC_SYNC_TEAM:
-	  check_team (code->expr1, "SYNC TEAM");
+	  resolve_sync_team (code);
 	  break;
 
 	case EXEC_ENTRY:
@@ -17933,16 +18059,16 @@ skip_interfaces:
 	  || (a->dummy && !a->pointer && a->intent == INTENT_OUT
 	      && sym->ns->proc_name->attr.if_source != IFSRC_IFBODY))
 	apply_default_init (sym);
+      else if (a->function && !a->pointer && !a->allocatable && !a->use_assoc
+	       && sym->result)
+	/* Default initialization for function results.  */
+	apply_default_init (sym->result);
       else if (a->function && sym->result && a->access != ACCESS_PRIVATE
 	       && (sym->ts.u.derived->attr.alloc_comp
 		   || sym->ts.u.derived->attr.pointer_comp))
 	/* Mark the result symbol to be referenced, when it has allocatable
 	   components.  */
 	sym->result->attr.referenced = 1;
-      else if (a->function && !a->pointer && !a->allocatable && !a->use_assoc
-	       && sym->result)
-	/* Default initialization for function results.  */
-	apply_default_init (sym->result);
     }
 
   if (sym->ts.type == BT_CLASS && sym->ns == gfc_current_ns
@@ -18423,6 +18549,16 @@ gfc_impure_variable (gfc_symbol *sym)
 
   if (sym->attr.use_assoc || sym->attr.in_common)
     return 1;
+
+  /* The namespace of a module procedure interface holds the arguments and
+     symbols, and so the symbol namespace can be different to that of the
+     procedure.  */
+  if (sym->ns != gfc_current_ns
+      && gfc_current_ns->proc_name->abr_modproc_decl
+      && sym->ns->proc_name->attr.function
+      && sym->attr.result
+      && !strcmp (sym->ns->proc_name->name, gfc_current_ns->proc_name->name))
+    return 0;
 
   /* Check if the symbol's ns is inside the pure procedure.  */
   for (ns = gfc_current_ns; ns; ns = ns->parent)

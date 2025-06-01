@@ -34,7 +34,7 @@
 #include <bits/allocator.h>
 #include <bits/functional_hash.h> // hash
 #include <bits/stl_function.h>    // equal_to
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
 # include <bits/ranges_base.h> // ranges::begin, ranges::distance etc.
 #endif
 
@@ -251,6 +251,14 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_map(__n, __hf, key_equal(), __a)
       { }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered containers
+      template<typename _InputIterator>
+	unordered_map(_InputIterator __first, _InputIterator __last,
+		      const allocator_type& __a)
+	: unordered_map(__first, __last, 0, hasher(), key_equal(), __a)
+	{ }
+
       template<typename _InputIterator>
 	unordered_map(_InputIterator __first, _InputIterator __last,
 		      size_type __n,
@@ -271,13 +279,20 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_map(__l, __n, hasher(), key_equal(), __a)
       { }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered containers
+      unordered_map(initializer_list<value_type> __l,
+		    const allocator_type& __a)
+      : unordered_map(__l, 0, hasher(), key_equal(), __a)
+      { }
+
       unordered_map(initializer_list<value_type> __l,
 		    size_type __n, const hasher& __hf,
 		    const allocator_type& __a)
       : unordered_map(__l, __n, __hf, key_equal(), __a)
       { }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief  Builds an %unordered_map from a range.
        *  @since C++23
@@ -681,7 +696,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       insert(initializer_list<value_type> __l)
       { _M_h.insert(__l); }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief Inserts a range of elements.
        *  @since C++23
@@ -1291,7 +1306,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		  _Hash, _Allocator)
     -> unordered_map<_Key, _Tp, _Hash, equal_to<_Key>, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   __not_allocator_like _Hash = hash<__detail::__range_key_type<_Rg>>,
 	   __not_allocator_like _Pred = equal_to<__detail::__range_key_type<_Rg>>,
@@ -1504,6 +1519,14 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_multimap(__n, __hf, key_equal(), __a)
       { }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered containers
+      template<typename _InputIterator>
+	unordered_multimap(_InputIterator __first, _InputIterator __last,
+			   const allocator_type& __a)
+	: unordered_multimap(__first, __last, 0, hasher(), key_equal(), __a)
+	{ }
+
       template<typename _InputIterator>
 	unordered_multimap(_InputIterator __first, _InputIterator __last,
 			   size_type __n,
@@ -1518,6 +1541,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	: unordered_multimap(__first, __last, __n, __hf, key_equal(), __a)
 	{ }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered containers
+      unordered_multimap(initializer_list<value_type> __l,
+			 const allocator_type& __a)
+      : unordered_multimap(__l, 0, hasher(), key_equal(), __a)
+      { }
+
       unordered_multimap(initializer_list<value_type> __l,
 			 size_type __n,
 			 const allocator_type& __a)
@@ -1530,7 +1560,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_multimap(__l, __n, __hf, key_equal(), __a)
       { }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief  Builds an %unordered_multimap from a range.
        *  @since C++23
@@ -1802,7 +1832,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       insert(initializer_list<value_type> __l)
       { _M_h.insert(__l); }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief Inserts a range of elements.
        *  @since C++23
@@ -2311,7 +2341,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		       _Hash, _Allocator)
     -> unordered_multimap<_Key, _Tp, _Hash, equal_to<_Key>, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   __not_allocator_like _Hash = hash<__detail::__range_key_type<_Rg>>,
 	   __not_allocator_like _Pred = equal_to<__detail::__range_key_type<_Rg>>,

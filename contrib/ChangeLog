@@ -1,3 +1,42 @@
+2025-05-27  Jan Hubicka  <hubicka@ucw.cz>
+
+	* gen_autofdo_event.py: Add support for AMD Zen 3 and
+	later CPUs.
+
+2025-05-23  Andi Kleen  <ak@gcc.gnu.org>
+
+	* diffsummary.py: New file.
+
+2025-05-09  Torbjörn SVENSSON  <torbjorn.svensson@foss.st.com>
+
+	* check_GNU_style_lib.py: Remove literal prefix.
+
+2025-05-01  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* config-list.mk: Update FreeBSD targets to version 13.
+
+2025-04-26  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* config-list.mk: Add m32c*-*-* to the list of obsoleted targets.
+
+2025-04-25  Jakub Jelinek  <jakub@redhat.com>
+
+	* gennews (files): Add files for GCC 15.
+
+2025-04-17  Jakub Jelinek  <jakub@redhat.com>
+
+	* gcc-changelog/git_update_version.py (active_refs): Add
+	releases/gcc-15.
+
+2025-04-11  Tomasz Kamiński  <tkaminsk@redhat.com>
+
+	PR libstdc++/109162
+	* unicode/README: Mentioned DerivedGeneralCategory.txt.
+	* unicode/gen_libstdcxx_unicode_data.py: Generation __escape_edges
+	table from DerivedGeneralCategory.txt. Update file name in comments.
+	* unicode/DerivedGeneralCategory.txt: Copy of file distributed by
+	Unicode Consortium.
+
 2025-03-27  David Malcolm  <dmalcolm@redhat.com>
 
 	PR testsuite/116163

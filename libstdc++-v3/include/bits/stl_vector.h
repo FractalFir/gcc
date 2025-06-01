@@ -68,7 +68,7 @@
 #if __glibcxx_concepts // C++ >= C++20
 # include <bits/ranges_base.h>          // ranges::distance
 #endif
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
 # include <bits/ranges_algobase.h>      // ranges::copy
 # include <bits/ranges_util.h>          // ranges::subrange
 #endif
@@ -407,7 +407,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	this->_M_impl._M_end_of_storage = this->_M_impl._M_start + __n;
       }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       // Called by insert_range, and indirectly by assign_range, append_range.
       // Initializes new elements in storage at __ptr and updates __ptr to
       // point after the last new element.
@@ -518,29 +518,17 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	return _S_nothrow_relocate(__is_move_insertable<_Tp_alloc_type>{});
       }
 
-      static pointer
-      _S_do_relocate(pointer __first, pointer __last, pointer __result,
-		     _Tp_alloc_type& __alloc, true_type) noexcept
-      {
-	return std::__relocate_a(__first, __last, __result, __alloc);
-      }
-
-      static pointer
-      _S_do_relocate(pointer, pointer, pointer __result,
-		     _Tp_alloc_type&, false_type) noexcept
-      { return __result; }
-
       static _GLIBCXX20_CONSTEXPR pointer
       _S_relocate(pointer __first, pointer __last, pointer __result,
 		  _Tp_alloc_type& __alloc) noexcept
       {
-#if __cpp_if_constexpr
-	// All callers have already checked _S_use_relocate() so just do it.
-	return std::__relocate_a(__first, __last, __result, __alloc);
-#else
-	using __do_it = __bool_constant<_S_use_relocate()>;
-	return _S_do_relocate(__first, __last, __result, __alloc, __do_it{});
-#endif
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wc++17-extensions" // if constexpr
+	if constexpr (_S_use_relocate())
+	  return std::__relocate_a(__first, __last, __result, __alloc);
+	else
+	  return __result;
+#pragma GCC diagnostic pop
       }
 #endif // C++11
 
@@ -763,7 +751,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	}
 #endif
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        * @brief Construct a vector from a range.
        * @param __rg A range of values that are convertible to `bool`.
@@ -926,7 +914,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       }
 #endif
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        * @brief Assign a range to the vector.
        * @param __rg A range of values that are convertible to `value_type`.
@@ -982,7 +970,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		}
 	    }
 	}
-#endif // ranges_to_container
+#endif // containers_ranges
 
       /// Get a copy of the memory allocation object.
       using _Base::get_allocator;
@@ -1648,7 +1636,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	}
 #endif
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        * @brief Insert a range into the vector.
        * @param __rg A range of values that are convertible to `value_type`.
@@ -1769,7 +1757,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	      append_range(__r); // This will take the fast path above.
 	    }
 	}
-#endif // ranges_to_container
+#endif // containers_ranges
 
       /**
        *  @brief  Remove element at given position.
@@ -1981,8 +1969,9 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	_M_range_initialize_n(_Iterator __first, _Sentinel __last,
 			      size_type __n)
 	{
-	  pointer __start = this->_M_impl._M_start =
+	  pointer __start =
 	    this->_M_allocate(_S_check_init_len(__n, _M_get_Tp_allocator()));
+	  this->_M_impl._M_start = this->_M_impl._M_finish = __start;
 	  this->_M_impl._M_end_of_storage = __start + __n;
 	  this->_M_impl._M_finish
 	      = std::__uninitialized_copy_a(_GLIBCXX_MOVE(__first), __last,
@@ -2313,7 +2302,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
     vector(_InputIterator, _InputIterator, _Allocator = _Allocator())
       -> vector<_ValT, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   typename _Alloc = allocator<ranges::range_value_t<_Rg>>>
     vector(from_range_t, _Rg&&, _Alloc = _Alloc())

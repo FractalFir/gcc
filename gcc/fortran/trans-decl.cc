@@ -4043,9 +4043,9 @@ gfc_build_builtin_function_decls (void)
       gfor_fndecl_caf_finalize = gfc_build_library_function_decl (
 	get_identifier (PREFIX("caf_finalize")), void_type_node, 0);
 
-      gfor_fndecl_caf_this_image = gfc_build_library_function_decl (
-	get_identifier (PREFIX("caf_this_image")), integer_type_node,
-	1, integer_type_node);
+      gfor_fndecl_caf_this_image = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_this_image")), ". r ", integer_type_node,
+	1, pvoid_type_node);
 
       gfor_fndecl_caf_num_images = gfc_build_library_function_decl (
 	get_identifier (PREFIX("caf_num_images")), integer_type_node,
@@ -4201,42 +4201,36 @@ gfc_build_builtin_function_decls (void)
 	    void_type_node, 3, pvoid_type_node, ppvoid_type_node,
 	    integer_type_node);
 
-      gfor_fndecl_caf_form_team
-	= gfc_build_library_function_decl_with_spec (
-	    get_identifier (PREFIX("caf_form_team")), ". . W . ",
-	    void_type_node, 3, integer_type_node, ppvoid_type_node,
-	    integer_type_node);
+      gfor_fndecl_caf_form_team = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_form_team")), ". r w r w w w ",
+	void_type_node, 6, integer_type_node, ppvoid_type_node, pint_type,
+	pint_type, pchar_type_node, size_type_node);
 
-      gfor_fndecl_caf_change_team
-	= gfc_build_library_function_decl_with_spec (
-	    get_identifier (PREFIX("caf_change_team")), ". w . ",
-	    void_type_node, 2, ppvoid_type_node,
-	    integer_type_node);
+      gfor_fndecl_caf_change_team = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_change_team")), ". r w w w ",
+	void_type_node, 4, pvoid_type_node, pint_type, pchar_type_node,
+	size_type_node);
 
-      gfor_fndecl_caf_end_team
-	= gfc_build_library_function_decl (
-	    get_identifier (PREFIX("caf_end_team")), void_type_node, 0);
+      gfor_fndecl_caf_end_team = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_end_team")), ". w w w ", void_type_node, 3,
+	pint_type, pchar_type_node, size_type_node);
 
-      gfor_fndecl_caf_get_team
-	= gfc_build_library_function_decl (
-	    get_identifier (PREFIX("caf_get_team")),
-	    void_type_node, 1, integer_type_node);
+      gfor_fndecl_caf_get_team = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_get_team")), ". r ", pvoid_type_node, 1,
+	pint_type);
 
-      gfor_fndecl_caf_sync_team
-	= gfc_build_library_function_decl_with_spec (
-	    get_identifier (PREFIX("caf_sync_team")), ". r . ",
-	    void_type_node, 2, ppvoid_type_node,
-	    integer_type_node);
+      gfor_fndecl_caf_sync_team = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_sync_team")), ". r w w w ", void_type_node,
+	4, pvoid_type_node, pint_type, pchar_type_node, size_type_node);
 
       gfor_fndecl_caf_team_number
       	= gfc_build_library_function_decl_with_spec (
 	    get_identifier (PREFIX("caf_team_number")), ". r ",
       	    integer_type_node, 1, integer_type_node);
 
-      gfor_fndecl_caf_image_status
-	= gfc_build_library_function_decl_with_spec (
-	    get_identifier (PREFIX("caf_image_status")), ". . r ",
-	    integer_type_node, 2, integer_type_node, ppvoid_type_node);
+      gfor_fndecl_caf_image_status = gfc_build_library_function_decl_with_spec (
+	get_identifier (PREFIX ("caf_image_status")), ". r r ",
+	integer_type_node, 2, integer_type_node, ppvoid_type_node);
 
       gfor_fndecl_caf_stopped_images
 	= gfc_build_library_function_decl_with_spec (
@@ -6920,6 +6914,7 @@ add_clause (gfc_symbol *sym, gfc_omp_map_op map_op)
 
   n = gfc_get_omp_namelist ();
   n->sym = sym;
+  n->where = sym->declared_at;
   n->u.map.op = map_op;
 
   if (!module_oacc_clauses)
@@ -8084,13 +8079,13 @@ gfc_generate_function_code (gfc_namespace * ns)
 		   || sym->result->ts.u.derived->attr.alloc_comp
 		   || sym->result->ts.u.derived->attr.pointer_comp))
 	      || (sym->result->ts.type == BT_CLASS
-		  && (CLASS_DATA (sym)->attr.allocatable
-		      || CLASS_DATA (sym)->attr.class_pointer
+		  && (CLASS_DATA (sym->result)->attr.allocatable
+		      || CLASS_DATA (sym->result)->attr.class_pointer
 		      || CLASS_DATA (sym->result)->attr.alloc_comp
 		      || CLASS_DATA (sym->result)->attr.pointer_comp))))
 	{
 	  artificial_result_decl = true;
-	  result = gfc_get_fake_result_decl (sym, 0);
+	  result = gfc_get_fake_result_decl (sym->result, 0);
 	}
 
       if (result != NULL_TREE && sym->attr.function && !sym->attr.pointer)

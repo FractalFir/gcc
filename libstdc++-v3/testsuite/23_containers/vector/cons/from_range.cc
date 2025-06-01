@@ -1,6 +1,11 @@
 // { dg-do run { target c++23 } }
 
 #include <vector>
+
+#if __cpp_lib_containers_ranges != 202202L
+# error "Feature-test macro __cpp_lib_containers_ranges has wrong value in <vector>"
+#endif
+
 #include <span>
 #include <testsuite_hooks.h>
 #include <testsuite_iterators.h>
@@ -101,8 +106,30 @@ test_constexpr()
   return true;
 }
 
+void
+test_pr120367()
+{
+#ifdef __cpp_exceptions
+  struct X
+  {
+    X(int) { throw 1; }     // Cannot successfully construct an X.
+    ~X() { VERIFY(false); } // So should never need to destroy one.
+  };
+
+  try
+  {
+    int i[1]{};
+    std::vector<X> v(std::from_range, i);
+  }
+  catch (int)
+  {
+  }
+#endif
+}
+
 int main()
 {
   test_ranges();
   static_assert( test_constexpr() );
+  test_pr120367();
 }

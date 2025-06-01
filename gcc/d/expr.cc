@@ -1026,7 +1026,6 @@ public:
     if (tb1->ty == TY::Tstruct)
       {
 	tree t1 = build_expr (e->e1);
-	tree t2 = convert_for_assignment (e->e2, e->e1->type, true);
 	StructDeclaration *sd = tb1->isTypeStruct ()->sym;
 
 	/* Look for struct = 0.  */
@@ -1051,25 +1050,8 @@ public:
 	else
 	  {
 	    /* Simple struct literal assignment.  */
-	    tree init = NULL_TREE;
-
-	    /* Fill any alignment holes in the struct using memset.  */
-	    if ((e->op == EXP::construct
-		 || (e->e2->op == EXP::structLiteral && e->op == EXP::blit))
-		&& (sd->isUnionDeclaration () || !identity_compare_p (sd)))
-	      {
-		t1 = stabilize_reference (t1);
-		init = build_memset_call (t1);
-	      }
-
-	    /* Elide generating assignment if init is all zeroes.  */
-	    if (init != NULL_TREE && initializer_zerop (t2))
-	      this->result_ = compound_expr (init, t1);
-	    else
-	      {
-		tree result = build_assign (modifycode, t1, t2);
-		this->result_ = compound_expr (init, result);
-	      }
+	    tree t2 = convert_for_assignment (e->e2, e->e1->type, true);
+	    this->result_ = build_assign (modifycode, t1, t2);
 	  }
 
 	return;
@@ -2457,7 +2439,7 @@ public:
 	CONSTRUCTOR_APPEND_ELT (ce, TYPE_FIELDS (aatype), mem);
 
 	result = build_nop (build_ctype (e->type),
-			    build_constructor (aatype, ce));
+			    build_padded_constructor (aatype, ce));
       }
     else
       gcc_unreachable ();
@@ -2530,7 +2512,7 @@ public:
 	    CONSTRUCTOR_APPEND_ELT (elms, size_int (i), value);
 	  }
 
-	tree ctor = build_constructor (type, elms);
+	tree ctor = build_padded_constructor (type, elms);
 	TREE_CONSTANT (ctor) = 1;
 	this->result_ = ctor;
 	return;
@@ -2612,8 +2594,10 @@ public:
 	  this->result_ = d_array_value (build_ctype (e->type),
 					 size_int (0), null_pointer_node);
 	else
-	  this->result_ = build_constructor (make_array_type (tb->nextOf (), 0),
-					     NULL);
+	  {
+	    tree arrtype = make_array_type (tb->nextOf (), 0);
+	    this->result_ = build_padded_constructor (arrtype, NULL);
+	  }
 
 	return;
       }
@@ -2654,7 +2638,7 @@ public:
     /* Now return the constructor as the correct type.  For static arrays there
        is nothing else to do.  For dynamic arrays, return a two field struct.
        For pointers, return the address.  */
-    tree ctor = build_constructor (satype, elms);
+    tree ctor = build_padded_constructor (satype, elms);
     tree type = build_ctype (e->type);
 
     /* Nothing else to do for static arrays.  */
@@ -2683,22 +2667,6 @@ public:
 	if (constant_p && initializer_constant_valid_p (ctor, TREE_TYPE (ctor)))
 	  TREE_STATIC (ctor) = 1;
 
-	/* Use memset to fill any alignment holes in the array.  */
-	if (!this->constp_ && !this->literalp_)
-	  {
-	    TypeStruct *ts = etype->baseElemOf ()->isTypeStruct ();
-
-	    if (ts != NULL && (!identity_compare_p (ts->sym)
-			       || ts->sym->isUnionDeclaration ()))
-	      {
-		tree var = build_local_temp (TREE_TYPE (ctor));
-		tree init = build_memset_call (var);
-		/* Evaluate memset() first, then any saved elements.  */
-		saved_elems = compound_expr (init, saved_elems);
-		ctor = compound_expr (modify_expr (var, ctor), var);
-	      }
-	  }
-
 	this->result_ = compound_expr (saved_elems, d_convert (type, ctor));
       }
     else if (e->onstack)
@@ -2723,6 +2691,9 @@ public:
 				    size_int (dmd::size (tb->nextOf ())));
 
 	tree result = build_memcpy_call (mem, build_address (ctor), size);
+
+	/* Fill any alignment holes in the array.  */
+	result = compound_expr (result, build_clear_padding_call (mem));
 
 	/* Return the array pointed to by MEM.  */
 	result = compound_expr (result, mem);
@@ -2755,7 +2726,7 @@ public:
     TypeAArray *ta = tb->isTypeAArray ();
     if (e->keys->length == 0)
       {
-	this->result_ = build_constructor (build_ctype (ta), NULL);
+	this->result_ = build_padded_constructor (build_ctype (ta), NULL);
 	return;
       }
 
@@ -2787,7 +2758,7 @@ public:
     CONSTRUCTOR_APPEND_ELT (ce, TYPE_FIELDS (aatype), mem);
 
     tree result = build_nop (build_ctype (e->type),
-			     build_constructor (aatype, ce));
+			     build_padded_constructor (aatype, ce));
     this->result_ = compound_expr (init, result);
   }
 
@@ -2798,7 +2769,7 @@ public:
     /* Handle empty struct literals.  */
     if (e->elements == NULL || e->sd->fields.length == 0)
       {
-	this->result_ = build_constructor (build_ctype (e->type), NULL);
+	this->result_ = build_padded_constructor (build_ctype (e->type), NULL);
 	return;
       }
 
@@ -2849,7 +2820,7 @@ public:
 	    elem = d_save_expr (elem);
 
 	    if (initializer_zerop (elem))
-	      value = build_constructor (build_ctype (ftype), NULL);
+	      value = build_padded_constructor (build_ctype (ftype), NULL);
 	    else
 	      value = build_array_from_val (ftype, elem);
 	  }
@@ -2897,18 +2868,6 @@ public:
 	tree var = build_deref (e->sym);
 	ctor = compound_expr (modify_expr (var, ctor), var);
       }
-    else if (!this->literalp_)
-      {
-	/* Use memset to fill any alignment holes in the object.  */
-	if (!identity_compare_p (e->sd) || e->sd->isUnionDeclaration ())
-	  {
-	    tree var = build_local_temp (TREE_TYPE (ctor));
-	    tree init = build_memset_call (var);
-	    /* Evaluate memset() first, then any saved element constructors.  */
-	    saved_elems = compound_expr (init, saved_elems);
-	    ctor = compound_expr (modify_expr (var, ctor), var);
-	  }
-      }
 
     this->result_ = compound_expr (saved_elems, ctor);
   }
@@ -2948,7 +2907,7 @@ public:
 	if (constant_p)
 	  this->result_ = build_vector_from_ctor (type, elms);
 	else
-	  this->result_ = build_constructor (type, elms);
+	  this->result_ = build_padded_constructor (type, elms);
       }
     else if (e->e1->type->toBasetype ()->ty == TY::Tsarray)
       {

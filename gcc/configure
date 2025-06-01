@@ -3951,7 +3951,7 @@ if test x"${DEFAULT_LINKER+set}" = x"set"; then
     as_fn_error $? "cannot execute: $DEFAULT_LINKER: check --with-ld or env. var. DEFAULT_LINKER" "$LINENO" 5
   elif $DEFAULT_LINKER -v < /dev/null 2>&1 | grep GNU > /dev/null; then
     gnu_ld_flag=yes
-  elif $DEFAULT_LINKER -v < /dev/null 2>&1 | grep ld64- > /dev/null; then
+  elif $DEFAULT_LINKER -v < /dev/null 2>&1 | grep 'PROJECT:ld\(64\)*-' > /dev/null; then
     ld64_flag=yes
   fi
 
@@ -12694,6 +12694,42 @@ fi
 if test $ac_cv_have_decl_O_NONBLOCK = yes; then
 
 $as_echo "#define HOST_HAS_O_NONBLOCK 1" >>confdefs.h
+
+fi
+
+# Check if personality and ADDR_NO_RANDOMIZE are declared
+# in sys/personality.h
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for personality ADDR_NO_RANDOMIZE" >&5
+$as_echo_n "checking for personality ADDR_NO_RANDOMIZE... " >&6; }
+if ${ac_cv_personality_addr_no_randomize+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+#include <sys/personality.h>
+int
+main ()
+{
+
+personality (personality (0xffffffffU) | ADDR_NO_RANDOMIZE);
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_cxx_try_compile "$LINENO"; then :
+  ac_cv_personality_addr_no_randomize=yes
+else
+  ac_cv_personality_addr_no_randomize=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_personality_addr_no_randomize" >&5
+$as_echo "$ac_cv_personality_addr_no_randomize" >&6; }
+if test $ac_cv_personality_addr_no_randomize = yes; then
+
+$as_echo "#define HOST_HAS_PERSONALITY_ADDR_NO_RANDOMIZE 1" >>confdefs.h
 
 fi
 
@@ -21498,7 +21534,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 21487 "configure"
+#line 21523 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -21604,7 +21640,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 21593 "configure"
+#line 21629 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -27842,6 +27878,35 @@ if test $gcc_cv_as_tls = yes; then
 fi
 
 fi
+case $target_os in
+  win32 | pe | cygwin* | mingw32*)
+    if test $set_have_as_tls = yes; then
+      # Hack to check whether ld breaks on @secrel32 for Windows
+      if test $in_tree_ld = yes; then
+	if test "$gcc_cv_gld_major_version" -eq 2 -a "$gcc_cv_gld_minor_version" -ge 44 -o "$gcc_cv_gld_major_version" -gt 2; then
+	  : # ld support for @secrel32 was fixed in this version
+	else
+	  as_fn_error $? "ld version is known to have broken secrel32 relocations, configure without --enable-tls or with --disable-tls to remove this error. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80881 for more information." "$LINENO" 5
+	fi
+      elif test x$gcc_cv_as != x -a x$gcc_cv_ld != x -a x$gcc_cv_objdump != x; then
+	echo '.text'          > conftest.s
+	echo 'foo: nop'      >> conftest.s
+	echo '.data'         >> conftest.s
+	echo '.secrel32 foo' >> conftest.s
+	if $gcc_cv_as -o conftest.o conftest.s > /dev/null 2>&1 && $gcc_cv_ld -o conftest.exe conftest.o > /dev/null; then
+	  if $gcc_cv_objdump -h conftest.exe | grep '\.reloc\>' > /dev/null; then
+	    as_fn_error $? "ld has broken secrel32 relocations, configure without --enable-tls or with --disable-tls to remove this error. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80881 for more information." "$LINENO" 5
+	  fi
+	else
+	  as_fn_error $? "Error occurred while checking for broken secrel32 relocations. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80881 for more information." "$LINENO" 5
+	fi
+	rm -f conftest.s conftest.o conftest.exe
+      else
+	as_fn_error $? "Cannot check for broken secrel32 relocations to determine --enable-tls support. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80881 for more information." "$LINENO" 5
+      fi
+    fi
+    ;;
+esac
 if test $set_have_as_tls = yes ; then
 
 $as_echo "#define HAVE_AS_TLS 1" >>confdefs.h
@@ -32708,8 +32773,9 @@ $as_echo "$gcc_cv_ld64_major" >&6; }
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking linker version" >&5
 $as_echo_n "checking linker version... " >&6; }
     if test x"${gcc_cv_ld64_version}" = x; then
-      gcc_cv_ld64_version=`$gcc_cv_ld -v 2>&1 | $EGREP 'ld64|dyld' \
-      | sed -e 's/.*ld64-//' -e 's/.*dyld-//'| awk '{print $1}'`
+      gcc_cv_ld64_version=`$gcc_cv_ld -v 2>&1 | $EGREP 'ld64|dyld|PROJECT:ld' \
+      | sed -e 's/.*ld64-//' -e 's/.*dyld-//' -e 's/.*PROJECT:ld-//' \
+      | awk '{print $1}'`
     fi
     { $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_ld64_version" >&5
 $as_echo "$gcc_cv_ld64_version" >&6; }

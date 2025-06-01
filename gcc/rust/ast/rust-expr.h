@@ -3004,6 +3004,10 @@ class RangeExpr : public ExprWithoutBlock
 {
   location_t locus;
 
+  // Some visitors still check for attributes on RangeExprs, and they will need
+  // to be supported in the future - so keep that for now
+  std::vector<Attribute> empty_attributes = {};
+
 protected:
   // outer attributes not allowed before range expressions
   RangeExpr (location_t locus) : locus (locus) {}
@@ -3013,15 +3017,11 @@ public:
 
   std::vector<Attribute> &get_outer_attrs () override final
   {
-    // RangeExpr cannot have any outer attributes
-    rust_assert (false);
+    return empty_attributes;
   }
 
   // should never be called - error if called
-  void set_outer_attrs (std::vector<Attribute> /* new_attrs */) override
-  {
-    rust_assert (false);
-  }
+  void set_outer_attrs (std::vector<Attribute> /* new_attrs */) override {}
 
   Expr::Kind get_expr_kind () const override { return Expr::Kind::Range; }
 };
@@ -4885,6 +4885,27 @@ struct InlineAsmRegOrRegClass
   location_t locus;
 };
 
+struct LlvmOperand
+{
+  std::string constraint;
+  std::unique_ptr<Expr> expr;
+
+  LlvmOperand (std::string constraint, std::unique_ptr<Expr> &&expr)
+    : constraint (constraint), expr (std::move (expr))
+  {}
+
+  LlvmOperand (const LlvmOperand &other)
+    : constraint (other.constraint), expr (other.expr->clone_expr ())
+  {}
+  LlvmOperand &operator= (const LlvmOperand &other)
+  {
+    constraint = other.constraint;
+    expr = other.expr->clone_expr ();
+
+    return *this;
+  }
+};
+
 class InlineAsmOperand
 {
 public:
@@ -5258,6 +5279,7 @@ struct TupleTemplateStr
   location_t loc;
   std::string symbol;
 
+  location_t get_locus () { return loc; }
   TupleTemplateStr (location_t loc, const std::string &symbol)
     : loc (loc), symbol (symbol)
   {}
@@ -5328,6 +5350,77 @@ public:
   }
 
   Expr::Kind get_expr_kind () const override { return Expr::Kind::InlineAsm; }
+};
+
+class LlvmInlineAsm : public ExprWithoutBlock
+{
+  // llvm_asm!("" :         : "r"(&mut dummy) : "memory" : "volatile");
+  //           Asm, Outputs, Inputs,            Clobbers, Options,
+
+public:
+  enum class Dialect
+  {
+    Att,
+    Intel,
+  };
+
+private:
+  location_t locus;
+  std::vector<Attribute> outer_attrs;
+  std::vector<LlvmOperand> inputs;
+  std::vector<LlvmOperand> outputs;
+  std::vector<TupleTemplateStr> templates;
+  std::vector<TupleClobber> clobbers;
+  bool volatility;
+  bool align_stack;
+  Dialect dialect;
+
+public:
+  LlvmInlineAsm (location_t locus) : locus (locus) {}
+
+  Dialect get_dialect () { return dialect; }
+
+  location_t get_locus () const override { return locus; }
+
+  void mark_for_strip () override {}
+
+  bool is_marked_for_strip () const override { return false; }
+
+  std::vector<Attribute> &get_outer_attrs () override { return outer_attrs; }
+
+  void accept_vis (ASTVisitor &vis) override;
+
+  std::string as_string () const override { return "InlineAsm AST Node"; }
+
+  void set_outer_attrs (std::vector<Attribute> v) override { outer_attrs = v; }
+
+  LlvmInlineAsm *clone_expr_without_block_impl () const override
+  {
+    return new LlvmInlineAsm (*this);
+  }
+
+  std::vector<TupleTemplateStr> &get_templates () { return templates; }
+
+  Expr::Kind get_expr_kind () const override
+  {
+    return Expr::Kind::LlvmInlineAsm;
+  }
+
+  void set_align_stack (bool align_stack) { this->align_stack = align_stack; }
+  bool is_stack_aligned () { return align_stack; }
+
+  void set_volatile (bool volatility) { this->volatility = volatility; }
+  bool is_volatile () { return volatility; }
+
+  void set_dialect (Dialect dialect) { this->dialect = dialect; }
+
+  void set_inputs (std::vector<LlvmOperand> operands) { inputs = operands; }
+  void set_outputs (std::vector<LlvmOperand> operands) { outputs = operands; }
+
+  std::vector<LlvmOperand> &get_inputs () { return inputs; }
+  std::vector<LlvmOperand> &get_outputs () { return outputs; }
+
+  std::vector<TupleClobber> &get_clobbers () { return clobbers; }
 };
 
 } // namespace AST

@@ -137,6 +137,9 @@ public:
   void inherit_bounds (
     const std::vector<TyTy::TypeBoundPredicate> &specified_bounds);
 
+  // contains_infer checks if there is an inference variable inside the type
+  const TyTy::BaseType *contains_infer () const;
+
   // is_unit returns whether this is just a unit-struct
   bool is_unit () const;
 
@@ -711,12 +714,22 @@ public:
     ENUM
   };
 
+  enum ReprKind
+  {
+    RUST,
+    C,
+    INT,
+    ALIGN,
+    PACKED,
+    // TRANSPARENT,
+    // SIMD,
+    // ...
+  };
+
   // Representation options, specified via attributes e.g. #[repr(packed)]
   struct ReprOptions
   {
-    // bool is_c;
-    // bool is_transparent;
-    //...
+    ReprKind repr_kind = ReprKind::RUST;
 
     // For align and pack: 0 = unspecified. Nonzero = byte alignment.
     // It is an error for both to be nonzero, this should be caught when

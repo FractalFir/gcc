@@ -317,7 +317,7 @@ d_array_value (tree type, tree len, tree data)
   CONSTRUCTOR_APPEND_ELT (ce, len_field, len);
   CONSTRUCTOR_APPEND_ELT (ce, ptr_field, data);
 
-  return build_constructor (type, ce);
+  return build_padded_constructor (type, ce);
 }
 
 /* Returns value representing the array length of expression EXP.
@@ -717,10 +717,11 @@ build_address (tree exp)
       if (AGGREGATE_TYPE_P (TREE_TYPE (exp))
 	  && !aggregate_value_p (TREE_TYPE (exp), exp))
 	{
-	  tree tmp = build_local_temp (TREE_TYPE (exp));
-	  init = compound_expr (init, build_memset_call (tmp));
-	  init = compound_expr (init, modify_expr (tmp, exp));
-	  exp = tmp;
+	  tree target = force_target_expr (exp);
+	  tree ptr = build_address (TARGET_EXPR_SLOT (target));
+	  init = compound_expr (init, target);
+	  init = compound_expr (init, build_clear_padding_call (ptr));
+	  exp = TARGET_EXPR_SLOT (target);
 	}
       else
 	exp = force_target_expr (exp);
@@ -891,20 +892,31 @@ build_memset_call (tree ptr, tree num)
     }
 
   /* Use a zero constant to fill the destination if setting the entire object.
-     For CONSTRUCTORs, the memcpy() is lowered to a ref-all pointer assignment,
-     which can then be merged with other stores to the object.  */
+     For CONSTRUCTORs, also set CONSTRUCTOR_ZERO_PADDING_BITS.  */
   tree valtype = TREE_TYPE (TREE_TYPE (ptr));
   if (tree_int_cst_equal (TYPE_SIZE_UNIT (valtype), num))
     {
       tree cst = build_zero_cst (valtype);
       if (TREE_CODE (cst) == CONSTRUCTOR)
-	return build_memcpy_call (ptr, build_address (cst), num);
+	CONSTRUCTOR_ZERO_PADDING_BITS (cst) = 1;
 
       return modify_expr (build_deref (ptr), cst);
     }
 
   return build_call_expr (builtin_decl_explicit (BUILT_IN_MEMSET), 3,
 			  ptr, integer_zero_node, num);
+}
+
+/* Build a call to built-in clear_padding(),  clears padding bits inside of the
+   object representation of object pointed by PTR.  */
+
+tree
+build_clear_padding_call (tree ptr)
+{
+  gcc_assert (POINTER_TYPE_P (TREE_TYPE (ptr)));
+
+  return build_call_expr (builtin_decl_explicit (BUILT_IN_CLEAR_PADDING), 1,
+			  ptr);
 }
 
 /* Return TRUE if the struct SD is suitable for comparison using memcmp.
@@ -1205,7 +1217,7 @@ build_struct_literal (tree type, vec <constructor_elt, va_gc> *init)
 {
   /* If the initializer was empty, use default zero initialization.  */
   if (vec_safe_is_empty (init))
-    return build_constructor (type, NULL);
+    return build_padded_constructor (type, NULL);
 
   /* Struct literals can be seen for special enums representing `_Complex',
      make sure to reinterpret the literal as the correct type.  */
@@ -1306,11 +1318,22 @@ build_struct_literal (tree type, vec <constructor_elt, va_gc> *init)
   /* Ensure that we have consumed all values.  */
   gcc_assert (vec_safe_is_empty (init) || ANON_AGGR_TYPE_P (type));
 
-  tree ctor = build_constructor (type, ve);
+  tree ctor = build_padded_constructor (type, ve);
 
   if (constant_p)
     TREE_CONSTANT (ctor) = 1;
 
+  return ctor;
+}
+
+/* Return a new zero padded CONSTRUCTOR node whose type is TYPE and values are
+   in the vec pointed to by VALS.  */
+
+tree
+build_padded_constructor (tree type, vec<constructor_elt, va_gc> *vals)
+{
+  tree ctor = build_constructor (type, vals);
+  CONSTRUCTOR_ZERO_PADDING_BITS (ctor) = 1;
   return ctor;
 }
 
@@ -1647,7 +1670,7 @@ underlying_complex_expr (tree type, tree expr)
                     real_part (expr));
       CONSTRUCTOR_APPEND_ELT (ve, TREE_CHAIN (TYPE_FIELDS (type)),
                     imaginary_part (expr));
-      return build_constructor (type, ve);
+      return build_padded_constructor (type, ve);
     }
 
   /* Replace type in the reinterpret cast with a cast to the record type.  */
@@ -1852,7 +1875,7 @@ build_array_from_val (Type *type, tree val)
   for (size_t i = 0; i < dims; i++)
     CONSTRUCTOR_APPEND_ELT (elms, size_int (i), val);
 
-  return build_constructor (build_ctype (type), elms);
+  return build_padded_constructor (build_ctype (type), elms);
 }
 
 /* Build a static array of type TYPE from an array of EXPS.
@@ -1879,15 +1902,13 @@ build_array_from_exprs (Type *type, Expressions *exps, bool const_p)
   /* Create a new temporary to store the array.  */
   tree var = build_local_temp (satype);
 
-  /* Fill any alignment holes with zeroes.  */
-  TypeStruct *ts = etype->baseElemOf ()->isTypeStruct ();
-  tree init = NULL;
-  if (ts && (!identity_compare_p (ts->sym) || ts->sym->isUnionDeclaration ()))
-    init = build_memset_call (var);
-
   /* Initialize the temporary.  */
-  tree assign = modify_expr (var, build_constructor (satype, elms));
-  return compound_expr (compound_expr (init, assign), var);
+  tree assign = modify_expr (var, build_padded_constructor (satype, elms));
+
+  /* Fill any alignment holes with zeroes.  */
+  tree clear_padding = build_clear_padding_call (build_address (var));
+
+  return compound_expr (compound_expr (assign, clear_padding), var);
 }
 
 
@@ -2301,7 +2322,7 @@ d_build_call (TypeFunction *tf, tree callable, tree object,
 	  if (empty_aggregate_p (TREE_TYPE (targ)) && !TREE_ADDRESSABLE (targ)
 	      && TREE_CODE (targ) != CONSTRUCTOR)
 	    {
-	      tree t = build_constructor (TREE_TYPE (targ), NULL);
+	      tree t = build_padded_constructor (TREE_TYPE (targ), NULL);
 	      targ = build2 (COMPOUND_EXPR, TREE_TYPE (t), targ, t);
 	    }
 
@@ -2613,7 +2634,7 @@ get_frame_for_symbol (Dsymbol *sym)
 		  framefields = DECL_CHAIN (framefields);
 		}
 
-	      frame_ref = build_address (build_constructor (type, ve));
+	      frame_ref = build_address (build_padded_constructor (type, ve));
 	    }
 	}
 

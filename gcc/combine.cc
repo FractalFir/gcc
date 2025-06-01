@@ -458,6 +458,7 @@ static rtx simplify_shift_const (rtx, enum rtx_code, machine_mode, rtx,
 				 int);
 static int recog_for_combine (rtx *, rtx_insn *, rtx *, unsigned = 0, unsigned = 0);
 static rtx gen_lowpart_for_combine (machine_mode, rtx);
+static rtx gen_lowpart_for_combine_no_emit (machine_mode, rtx);
 static enum rtx_code simplify_compare_const (enum rtx_code, machine_mode,
 					     rtx *, rtx *);
 static enum rtx_code simplify_comparison (enum rtx_code, rtx *, rtx *);
@@ -491,7 +492,7 @@ static rtx gen_lowpart_or_truncate (machine_mode, rtx);
 
 /* Our implementation of gen_lowpart never emits a new pseudo.  */
 #undef RTL_HOOKS_GEN_LOWPART_NO_EMIT
-#define RTL_HOOKS_GEN_LOWPART_NO_EMIT      gen_lowpart_for_combine
+#define RTL_HOOKS_GEN_LOWPART_NO_EMIT      gen_lowpart_for_combine_no_emit
 
 #undef RTL_HOOKS_REG_NONZERO_REG_BITS
 #define RTL_HOOKS_REG_NONZERO_REG_BITS     reg_nonzero_bits_for_combine
@@ -815,7 +816,7 @@ do_SUBST_LINK (struct insn_link **into, struct insn_link *newval)
 #define SUBST_LINK(oldval, newval) do_SUBST_LINK (&oldval, newval)
 
 /* Subroutine of try_combine.  Determine whether the replacement patterns
-   NEWPAT, NEWI2PAT and NEWOTHERPAT are cheaper according to insn_cost
+   NEWPAT, NEWI2PAT and NEWOTHERPAT are more expensive according to insn_cost
    than the original sequence I0, I1, I2, I3 and undobuf.other_insn.  Note
    that I0, I1 and/or NEWI2PAT may be NULL_RTX.  Similarly, NEWOTHERPAT and
    undobuf.other_insn may also both be NULL_RTX.  Return false if the cost
@@ -4020,34 +4021,34 @@ try_combine (rtx_insn *i3, rtx_insn *i2, rtx_insn *i1, rtx_insn *i0,
 	 in i3, so we need to make sure that we won't wrongly hoist a SET
 	 to i2 that would conflict with a death note present in there, or
 	 would have its dest modified or used between i2 and i3.  */
-      if (!modified_between_p (SET_SRC (set1), i2, i3)
-	  && !(REG_P (SET_DEST (set1))
-	       && find_reg_note (i2, REG_DEAD, SET_DEST (set1)))
-	  && !(GET_CODE (SET_DEST (set1)) == SUBREG
-	       && find_reg_note (i2, REG_DEAD,
-				 SUBREG_REG (SET_DEST (set1))))
-	  && SET_DEST (set1) != pc_rtx
-	  && !reg_used_between_p (SET_DEST (set1), i2, i3)
+      if ((set_noop_p (set1)
+	   || (!modified_between_p (SET_SRC (set1), i2, i3)
+	       && !(REG_P (SET_DEST (set1))
+		    && find_reg_note (i2, REG_DEAD, SET_DEST (set1)))
+	       && !(GET_CODE (SET_DEST (set1)) == SUBREG
+		    && find_reg_note (i2, REG_DEAD,
+				      SUBREG_REG (SET_DEST (set1))))
+	       && SET_DEST (set1) != pc_rtx
+	       && !reg_used_between_p (SET_DEST (set1), i2, i3)))
 	  /* If I3 is a jump, ensure that set0 is a jump so that
 	     we do not create invalid RTL.  */
-	  && (!JUMP_P (i3) || SET_DEST (set0) == pc_rtx)
-	 )
+	  && (!JUMP_P (i3) || SET_DEST (set0) == pc_rtx))
 	{
 	  newi2pat = set1;
 	  newpat = set0;
 	}
-      else if (!modified_between_p (SET_SRC (set0), i2, i3)
-	       && !(REG_P (SET_DEST (set0))
-		    && find_reg_note (i2, REG_DEAD, SET_DEST (set0)))
-	       && !(GET_CODE (SET_DEST (set0)) == SUBREG
-		    && find_reg_note (i2, REG_DEAD,
-				      SUBREG_REG (SET_DEST (set0))))
-	       && SET_DEST (set0) != pc_rtx
-	       && !reg_used_between_p (SET_DEST (set0), i2, i3)
+      else if ((set_noop_p (set0)
+		|| (!modified_between_p (SET_SRC (set0), i2, i3)
+		    && !(REG_P (SET_DEST (set0))
+			 && find_reg_note (i2, REG_DEAD, SET_DEST (set0)))
+		    && !(GET_CODE (SET_DEST (set0)) == SUBREG
+			 && find_reg_note (i2, REG_DEAD,
+					   SUBREG_REG (SET_DEST (set0))))
+		    && SET_DEST (set0) != pc_rtx
+		    && !reg_used_between_p (SET_DEST (set0), i2, i3)))
 	       /* If I3 is a jump, ensure that set1 is a jump so that
 		  we do not create invalid RTL.  */
-	       && (!JUMP_P (i3) || SET_DEST (set1) == pc_rtx)
-	      )
+	       && (!JUMP_P (i3) || SET_DEST (set1) == pc_rtx))
 	{
 	  newi2pat = set0;
 	  newpat = set1;
@@ -4129,8 +4130,8 @@ try_combine (rtx_insn *i3, rtx_insn *i2, rtx_insn *i1, rtx_insn *i0,
 	}
     }
 
-  /* Only allow this combination if insn_cost reports that the
-     replacement instructions are cheaper than the originals.  */
+  /* Reject this combination if insn_cost reports that the replacement
+     instructions are more expensive than the originals.  */
   if (!combine_validate_cost (i0, i1, i2, i3, newpat, newi2pat, other_pat))
     {
       undo_all ();
@@ -5280,6 +5281,12 @@ find_split_point (rtx *loc, rtx_insn *insn, bool set_src)
 	  SUBST (XEXP (x, 0), XEXP (x, 1));
 	  SUBST (XEXP (x, 1), tem);
 	}
+      /* Many targets have a `(and (not X) Y)` and/or `(ior (not X) Y)` instructions.
+	 Split at that insns.  However if this is
+	 the SET_SRC, we likely do not have such an instruction and it's
+	 worthless to try this split.  */
+      if (!set_src && GET_CODE (XEXP (x, 0)) == NOT)
+	return loc;
       break;
 
     case PLUS:
@@ -11884,6 +11891,22 @@ gen_lowpart_for_combine (machine_mode omode, rtx x)
  fail:
   return gen_rtx_CLOBBER (omode, const0_rtx);
 }
+
+/* Like gen_lowpart_for_combine but returns NULL_RTX
+   for an error instead of CLOBBER.
+   Note no_emit is not called directly from combine but rather from
+   simplify_rtx and is expecting a NULL on failure rather than
+   a CLOBBER.  */
+
+static rtx
+gen_lowpart_for_combine_no_emit (machine_mode omode, rtx x)
+{
+  rtx tem = gen_lowpart_for_combine (omode, x);
+  if (!tem || GET_CODE (tem) == CLOBBER)
+    return NULL_RTX;
+  return tem;
+}
+
 
 /* Try to simplify a comparison between OP0 and a constant OP1,
    where CODE is the comparison code that will be tested, into a

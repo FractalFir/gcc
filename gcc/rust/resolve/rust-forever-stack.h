@@ -673,7 +673,8 @@ public:
   template <typename S>
   tl::optional<Rib::Definition> resolve_path (
     const std::vector<S> &segments, bool has_opening_scope_resolution,
-    std::function<void (const S &, NodeId)> insert_segment_resolution);
+    std::function<void (const S &, NodeId)> insert_segment_resolution,
+    std::vector<Error> &collect_errors);
 
   // FIXME: Documentation
   tl::optional<Resolver::CanonicalPath> to_canonical_path (NodeId id) const;
@@ -792,13 +793,15 @@ private:
   tl::optional<SegIterator<S>> find_starting_point (
     const std::vector<S> &segments,
     std::reference_wrapper<Node> &starting_point,
-    std::function<void (const S &, NodeId)> insert_segment_resolution);
+    std::function<void (const S &, NodeId)> insert_segment_resolution,
+    std::vector<Error> &collect_errors);
 
   template <typename S>
   tl::optional<Node &> resolve_segments (
     Node &starting_point, const std::vector<S> &segments,
     SegIterator<S> iterator,
-    std::function<void (const S &, NodeId)> insert_segment_resolution);
+    std::function<void (const S &, NodeId)> insert_segment_resolution,
+    std::vector<Error> &collect_errors);
 
   tl::optional<Rib::Definition> resolve_final_segment (Node &final_node,
 						       std::string &seg_name,
@@ -828,6 +831,21 @@ private:
   tl::optional<Node &> dfs_node (Node &starting_point, NodeId to_find);
   tl::optional<const Node &> dfs_node (const Node &starting_point,
 				       NodeId to_find) const;
+
+public:
+  bool forward_declared (NodeId definition, NodeId usage)
+  {
+    if (peek ().kind != Rib::Kind::ForwardTypeParamBan)
+      return false;
+
+    const auto &definition_rib = dfs_rib (cursor (), definition);
+
+    if (!definition_rib)
+      return false;
+
+    return (definition_rib
+	    && definition_rib.value ().kind == Rib::Kind::ForwardTypeParamBan);
+  }
 };
 
 } // namespace Resolver2_0

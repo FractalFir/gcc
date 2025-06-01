@@ -70,8 +70,7 @@ Early::go (AST::Crate &crate)
 bool
 Early::resolve_glob_import (NodeId use_dec_id, TopLevel::ImportKind &&glob)
 {
-  auto resolved
-    = ctx.resolve_path (glob.to_resolve.get_segments (), Namespace::Types);
+  auto resolved = ctx.resolve_path (glob.to_resolve, Namespace::Types);
   if (!resolved.has_value ())
     return false;
 
@@ -141,6 +140,10 @@ Early::build_import_mapping (
       // be moved into the newly created import mappings
       auto path = import.to_resolve;
 
+      // used to skip the "unresolved import" error
+      // if we output other errors during resolution
+      size_t old_error_count = macro_resolve_errors.size ();
+
       switch (import.kind)
 	{
 	case TopLevel::ImportKind::Kind::Glob:
@@ -154,7 +157,7 @@ Early::build_import_mapping (
 	  break;
 	}
 
-      if (!found)
+      if (!found && old_error_count == macro_resolve_errors.size ())
 	collect_error (Error (path.get_final_segment ().get_locus (),
 			      ErrorCode::E0433, "unresolved import %qs",
 			      path.as_string ().c_str ()));
@@ -325,10 +328,9 @@ Early::visit_attributes (std::vector<AST::Attribute> &attrs)
 	      auto pm_def = mappings.lookup_derive_proc_macro_def (
 		definition->get_node_id ());
 
-	      rust_assert (pm_def.has_value ());
-
-	      mappings.insert_derive_proc_macro_invocation (trait,
-							    pm_def.value ());
+	      if (pm_def.has_value ())
+		mappings.insert_derive_proc_macro_invocation (trait,
+							      pm_def.value ());
 	    }
 	}
       else if (Analysis::BuiltinAttributeMappings::get ()

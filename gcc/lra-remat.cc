@@ -460,7 +460,7 @@ create_cands (void)
 		&& dst_regno >= FIRST_PSEUDO_REGISTER
 		&& reg_renumber[dst_regno] < 0
 		&& BLOCK_FOR_INSN (insn2) == BLOCK_FOR_INSN (insn)
-		&& insn2 == prev_nonnote_insn (insn))
+		&& insn2 == prev_nonnote_nondebug_insn (insn))
 	      {
 		create_cand (insn2, regno_potential_cand[src_regno].nop,
 			     dst_regno, insn);
@@ -1180,8 +1180,7 @@ do_remat (void)
 
 		      start_sequence ();
 		      emit_insn (remat_pat);
-		      remat_insn = get_insns ();
-		      end_sequence ();
+		      remat_insn = end_sequence ();
 		      if (recog_memoized (remat_insn) < 0)
 			remat_insn = NULL;
 		      cand_sp_offset = cand_id->sp_offset;

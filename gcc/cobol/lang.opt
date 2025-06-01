@@ -38,6 +38,11 @@ Cobol Joined Separate
 ;;  -I <dir>	Add copybook search directory
 ; Documented in c.opt
 
+M
+Cobol
+; Documented in c.opt
+
+
 dialect
 Cobol Joined Separate Enum(dialect_type) EnumBitSet Var(cobol_dialect)
 Accept COBOL constructs used by non-ISO compilers
@@ -77,10 +82,6 @@ ffixed-form
 Cobol RejectNegative
 Assume that the source file is fixed form.
 
-fsyntax-only
-Cobol RejectNegative
-; Documented in c.opt
-
 ffree-form
 Cobol RejectNegative
 Assume that the source file is free form.
@@ -92,10 +93,6 @@ Cobol RejectNegative Joined Separate UInteger Var(indicator_column) Init(0) Inte
 finternal-ebcdic
 Cobol Var(cobol_ebcdic, 1) Init(0)
 -finternal-ebcdic	Internal processing is in EBCDIC Code Page 1140
-
-fmax-errors
-Cobol Joined Separate
-; Documented in C
 
 fstatic-call
 Cobol Var(cobol_static_call, 1) Init(1)
@@ -118,7 +115,7 @@ Cobol Joined Separate
 ; Documented in C
 
 include
-Cobol Joined Separate Var(cobol_include)
+Cobol Joined Separate
 ; Documented in C
 
 isysroot

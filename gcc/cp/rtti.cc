@@ -468,6 +468,7 @@ get_tinfo_decl_direct (tree type, tree name, int pseudo_ix)
       DECL_IGNORED_P (d) = 1;
       TREE_READONLY (d) = 1;
       TREE_STATIC (d) = 1;
+      TREE_ADDRESSABLE (d) = 1;
       /* Tell equal_address_to that different tinfo decls never
 	 overlap.  */
       if (vec_safe_is_empty (unemitted_tinfo_decls))
@@ -1318,18 +1319,9 @@ get_pseudo_ti_index (tree type)
 static tinfo_s *
 get_tinfo_desc (unsigned ix)
 {
-  unsigned len = tinfo_descs->length ();
-
-  if (len <= ix)
-    {
-      /* too short, extend.  */
-      len = ix + 1 - len;
-      vec_safe_reserve (tinfo_descs, len);
-      tinfo_s elt;
-      elt.type = elt.vtable = elt.name = NULL_TREE;
-      while (len--)
-	tinfo_descs->quick_push (elt);
-    }
+  if (tinfo_descs->length () <= ix)
+    /* too short, extend.  */
+    vec_safe_grow_cleared (tinfo_descs, ix + 1);
 
   tinfo_s *res = &(*tinfo_descs)[ix];
 

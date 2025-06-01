@@ -1,3 +1,95 @@
+2025-04-29  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/103044
+	* d-tree.h (build_clear_padding_call): New prototype.
+	* d-codegen.cc (build_clear_padding_call): New function.
+	(build_memset_call): Remove generated call to __builtin_memcpy.
+	(build_address): Replace generated call to __builtin_memset with
+	__builtin_clear_padding.
+	(build_array_from_exprs): Likewise.
+	* expr.cc (ExprVisitor::visit (AssignExp *)): Remove generated call to
+	__builtin_memset.
+	(ExprVisitor::visit (ArrayLiteralExp *)): Likewise.  Insert call to
+	__builtin_clear_padding after copying array into GC memory.
+	(ExprVisitor::visit (StructLiteralExp *)): Remove generated call to
+	__builtin_memset.
+	* toir.cc (IRVisitor::visit (ReturnStatement *)): Likewise.
+
+2025-04-17  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* dmd/MERGE: Merge upstream dmd 956e73d64e.
+
+2025-04-15  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/119826
+	* types.cc (TypeVisitor::visit (TypeEnum *)): Propagate flags of main
+	enum types to all forward-referenced variants.
+
+2025-04-15  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/119799
+	* decl.cc (DeclVisitor::visit (VarDeclaration *)): Check front-end
+	type size before building the VAR_DECL.  Allow C symbols to have a
+	size of `0'.
+
+2025-04-15  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/119817
+	* imports.cc (ImportVisitor::visit (OverloadSet *)): Don't push
+	NULL_TREE to vector of import symbols.
+
+2025-04-12  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/109023
+	* d-compiler.cc: Include dmd/errors.h.
+	(Compiler::onImport): Implement.
+	* d-lang.cc (d_handle_option): Handle -finclude-imports.
+	(d_parse_file): Run semantic on included imports.
+	* gdc.texi: Document -finclude-imports.
+	* lang.opt: Add finclude-imports.
+	* lang.opt.urls: Regenerate.
+
+2025-04-12  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/119758
+	* d-lang.cc (d_parse_file): Use endswith in test for -fonly= argument.
+	* d-spec.cc (lang_specific_driver): Rework -fonly= and pass all input
+	files to the front-end compiler when the option is seen.
+
+2025-04-11  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* dmd/MERGE: Merge upstream dmd 1b34fea478.
+
+2025-04-09  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/118309
+	* modules.cc: Include debug.h
+	(d_finish_compilation): Call debug_hooks->type_decl on all TYPE_DECLs.
+	* types.cc: Remove toplev.h include.
+	(finish_aggregate_type): Don't call rest_of_type_compilation or
+	rest_of_decl_compilation on type.
+	(TypeVisitor::visit (TypeEnum *)): Likewise.
+
+2025-04-09  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/117832
+	* d-tree.h (build_padded_constructor): New prototype.
+	* d-codegen.cc (build_padded_constructor): New function.
+	(d_array_value): Call it.
+	(build_memset_call): Likewise.
+	(build_struct_literal): Likewise.
+	(underlying_complex_expr): Likewise.
+	(build_array_from_val): Likewise.
+	(build_array_from_exprs): Likewise.
+	(d_build_call): Likewise.
+	(get_frame_for_symbol): Likewise.
+	* d-convert.cc (convert_for_rvalue): Likewise.
+	(convert_for_assignment): Likewise.
+	* decl.cc (class DeclVisitor): Likewise.
+	* expr.cc (class ExprVisitor): Likewise.
+	* modules.cc (layout_moduleinfo): Likewise.
+	* typeinfo.cc (class TypeInfoVisitor): Likewise.
+
 2025-04-08  Iain Buclaw  <ibuclaw@gdcproject.org>
 
 	* dmd/MERGE: Merge upstream dmd 51816cd01d.

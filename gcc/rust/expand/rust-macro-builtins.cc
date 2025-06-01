@@ -83,7 +83,6 @@ const BiMap<std::string, BuiltinMacro> MacroBuiltin::builtins = {{
   {"Ord", BuiltinMacro::Ord},
   {"PartialOrd", BuiltinMacro::PartialOrd},
   {"Hash", BuiltinMacro::Hash},
-
 }};
 
 AST::MacroTranscriberFunc
@@ -101,6 +100,15 @@ inline_asm_maker (AST::AsmKind global_asm)
   return [global_asm] (location_t loc, AST::MacroInvocData &invoc,
 		       AST::InvocKind semicolon) {
     return MacroBuiltin::asm_handler (loc, invoc, semicolon, global_asm);
+  };
+}
+
+AST::MacroTranscriberFunc
+inline_llvm_asm_maker (AST::AsmKind global_asm)
+{
+  return [global_asm] (location_t loc, AST::MacroInvocData &invoc,
+		       AST::InvocKind semicolon) {
+    return MacroBuiltin::llvm_asm_handler (loc, invoc, semicolon, global_asm);
   };
 }
 
@@ -122,7 +130,7 @@ std::unordered_map<std::string, AST::MacroTranscriberFunc>
     {"format_args_nl", format_args_maker (AST::FormatArgs::Newline::Yes)},
     {"asm", inline_asm_maker (AST::AsmKind::Inline)},
     // FIXME: Is that okay?
-    {"llvm_asm", inline_asm_maker (AST::AsmKind::Inline)},
+    {"llvm_asm", inline_llvm_asm_maker (AST::AsmKind::Inline)},
     {"global_asm", inline_asm_maker (AST::AsmKind::Global)},
     {"option_env", MacroBuiltin::option_env_handler},
     /* Unimplemented macro builtins */
@@ -137,6 +145,7 @@ std::unordered_map<std::string, AST::MacroTranscriberFunc>
     {"cfg_accessible", MacroBuiltin::sorry},
     {"rustc_const_stable", MacroBuiltin::sorry},
     {"rustc_const_unstable", MacroBuiltin::sorry},
+    {"track_caller", MacroBuiltin::sorry},
     /* Derive builtins do not need a real transcriber, but still need one. It
        should however never be called since builtin derive macros get expanded
        differently, and benefit from knowing on what kind of items they are

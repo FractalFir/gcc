@@ -610,12 +610,10 @@ namespace __gnu_test
     test_container(T* _first, T* _last) : bounds(_first, _last)
     { }
 
-#if __cplusplus >= 201103L
     template<std::size_t N>
       explicit
-      test_container(T (&arr)[N]) : test_container(arr, arr+N)
+      test_container(T (&arr)[N]) : bounds(arr, arr+N)
       { }
-#endif
 
     ItType<T>
     it(int pos)
@@ -893,6 +891,9 @@ namespace __gnu_test
   template<typename T>
     using test_input_range
       = test_range<T, input_iterator_wrapper>;
+  template<typename T>
+    using test_input_range_nocopy
+      = test_range_nocopy<T, input_iterator_wrapper_nocopy>;
   template<typename T>
     using test_output_range
       = test_range<T, output_iterator_wrapper>;

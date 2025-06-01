@@ -175,6 +175,12 @@ namespace __debug
 
       template<typename _InputIterator>
 	unordered_map(_InputIterator __first, _InputIterator __last,
+		      const allocator_type& __a)
+	: unordered_map(__first, __last, 0, hasher(), key_equal(), __a)
+	{ }
+
+      template<typename _InputIterator>
+	unordered_map(_InputIterator __first, _InputIterator __last,
 		      size_type __n,
 		      const allocator_type& __a)
 	: unordered_map(__first, __last, __n, hasher(), key_equal(), __a)
@@ -189,6 +195,11 @@ namespace __debug
 	{ }
 
       unordered_map(initializer_list<value_type> __l,
+		    const allocator_type& __a)
+      : unordered_map(__l, 0, hasher(), key_equal(), __a)
+      { }
+
+      unordered_map(initializer_list<value_type> __l,
 		    size_type __n,
 		    const allocator_type& __a)
       : unordered_map(__l, __n, hasher(), key_equal(), __a)
@@ -201,7 +212,7 @@ namespace __debug
       : unordered_map(__l, __n, __hf, key_equal(), __a)
       { }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       template<__detail::__container_compatible_range<value_type> _Rg>
 	unordered_map(from_range_t, _Rg&& __rg,
 		      size_type __n = 0,
@@ -869,7 +880,7 @@ namespace __debug
 		  _Hash, _Allocator)
     -> unordered_map<_Key, _Tp, _Hash, equal_to<_Key>, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   __not_allocator_like _Hash = hash<__detail::__range_key_type<_Rg>>,
 	   __not_allocator_like _Pred = equal_to<__detail::__range_key_type<_Rg>>,
@@ -1053,6 +1064,12 @@ namespace __debug
 
       template<typename _InputIterator>
 	unordered_multimap(_InputIterator __first, _InputIterator __last,
+			   const allocator_type& __a)
+	: unordered_multimap(__first, __last, 0, hasher(), key_equal(), __a)
+	{ }
+
+      template<typename _InputIterator>
+	unordered_multimap(_InputIterator __first, _InputIterator __last,
 			   size_type __n,
 			   const allocator_type& __a)
 	: unordered_multimap(__first, __last, __n, hasher(), key_equal(), __a)
@@ -1066,6 +1083,11 @@ namespace __debug
 	{ }
 
       unordered_multimap(initializer_list<value_type> __l,
+			 const allocator_type& __a)
+      : unordered_multimap(__l, 0, hasher(), key_equal(), __a)
+      { }
+
+      unordered_multimap(initializer_list<value_type> __l,
 			 size_type __n,
 			 const allocator_type& __a)
       : unordered_multimap(__l, __n, hasher(), key_equal(), __a)
@@ -1077,7 +1099,7 @@ namespace __debug
       : unordered_multimap(__l, __n, __hf, key_equal(), __a)
       { }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       template<__detail::__container_compatible_range<value_type> _Rg>
 	unordered_multimap(from_range_t, _Rg&& __rg,
 		           size_type __n = 0,
@@ -1655,7 +1677,7 @@ namespace __debug
 		       _Hash, _Allocator)
     -> unordered_multimap<_Key, _Tp, _Hash, equal_to<_Key>, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   __not_allocator_like _Hash = hash<__detail::__range_key_type<_Rg>>,
 	   __not_allocator_like _Pred = equal_to<__detail::__range_key_type<_Rg>>,

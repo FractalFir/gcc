@@ -16,6 +16,8 @@
 // along with GCC; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
+#include "optional.h"
+#include "rust-hir-expr.h"
 #include "rust-system.h"
 #include "rust-tyty-call.h"
 #include "rust-hir-type-check-struct-field.h"
@@ -842,6 +844,19 @@ TypeCheckExpr::visit (HIR::InlineAsm &expr)
 }
 
 void
+TypeCheckExpr::visit (HIR::LlvmInlineAsm &expr)
+{
+  for (auto &i : expr.inputs)
+    TypeCheckExpr::Resolve (*i.expr);
+
+  for (auto &o : expr.outputs)
+    TypeCheckExpr::Resolve (*o.expr);
+
+  // Black box hint is unit type
+  infered = TyTy::TupleType::get_unit_type ();
+}
+
+void
 TypeCheckExpr::visit (HIR::RangeFullExpr &expr)
 {
   auto lang_item_type = LangItem::Kind::RANGE_FULL;
@@ -1127,31 +1142,117 @@ TypeCheckExpr::visit (HIR::FieldAccessExpr &expr)
   bool is_valid_type = struct_base->get_kind () == TyTy::TypeKind::ADT;
   if (!is_valid_type)
     {
-      rust_error_at (expr.get_locus (),
-		     "expected algebraic data type got: [%s]",
-		     struct_base->as_string ().c_str ());
+      rust_error_at (expr.get_locus (), "expected algebraic data type got %qs",
+		     struct_base->get_name ().c_str ());
       return;
     }
 
   TyTy::ADTType *adt = static_cast<TyTy::ADTType *> (struct_base);
-  rust_assert (!adt->is_enum ());
-  rust_assert (adt->number_of_variants () == 1);
-
+  rust_assert (adt->number_of_variants () > 0);
   TyTy::VariantDef *vaiant = adt->get_variants ().at (0);
 
   TyTy::StructFieldType *lookup = nullptr;
   bool found = vaiant->lookup_field (expr.get_field_name ().as_string (),
 				     &lookup, nullptr);
-  if (!found)
+  if (!found || adt->is_enum ())
     {
-      rust_error_at (expr.get_locus (), ErrorCode::E0609,
-		     "no field %qs on type %qs",
+      rich_location r (line_table, expr.get_locus ());
+      r.add_range (expr.get_field_name ().get_locus ());
+      rust_error_at (r, ErrorCode::E0609, "no field %qs on type %qs",
 		     expr.get_field_name ().as_string ().c_str (),
-		     adt->as_string ().c_str ());
+		     adt->get_name ().c_str ());
       return;
     }
 
   infered = lookup->get_field_type ();
+}
+
+bool
+is_default_fn (const MethodCandidate &candidate)
+{
+  if (candidate.candidate.is_impl_candidate ())
+    {
+      auto *item = candidate.candidate.item.impl.impl_item;
+
+      if (item->get_impl_item_type () == HIR::ImplItem::FUNCTION)
+	{
+	  auto &fn = static_cast<HIR::Function &> (*item);
+
+	  return fn.is_default ();
+	}
+    }
+
+  return false;
+}
+
+void
+emit_ambiguous_resolution_error (HIR::MethodCallExpr &expr,
+				 std::set<MethodCandidate> &candidates)
+{
+  rich_location r (line_table, expr.get_method_name ().get_locus ());
+  std::string rich_msg = "multiple "
+			 + expr.get_method_name ().get_segment ().as_string ()
+			 + " found";
+
+  // We have to filter out default candidates
+  for (auto &c : candidates)
+    if (!is_default_fn (c))
+      r.add_range (c.candidate.locus);
+
+  r.add_fixit_replace (rich_msg.c_str ());
+
+  rust_error_at (r, ErrorCode::E0592, "duplicate definitions with name %qs",
+		 expr.get_method_name ().get_segment ().as_string ().c_str ());
+}
+
+// We are allowed to have multiple candidates if they are all specializable
+// functions or if all of them except one are specializable functions.
+// In the later case, we just return a valid candidate without erroring out
+// about ambiguity. If there are two or more specialized functions, then we
+// error out.
+//
+// FIXME: The first case is not handled at the moment, so we error out
+tl::optional<const MethodCandidate &>
+handle_multiple_candidates (HIR::MethodCallExpr &expr,
+			    std::set<MethodCandidate> &candidates)
+{
+  auto all_default = true;
+  tl::optional<const MethodCandidate &> found = tl::nullopt;
+
+  for (auto &c : candidates)
+    {
+      if (!is_default_fn (c))
+	{
+	  all_default = false;
+
+	  // We haven't found a final candidate yet, so we can select
+	  // this one. However, if we already have a candidate, then
+	  // that means there are multiple non-default candidates - we
+	  // must error out
+	  if (!found)
+	    {
+	      found = c;
+	    }
+	  else
+	    {
+	      emit_ambiguous_resolution_error (expr, candidates);
+	      return tl::nullopt;
+	    }
+	}
+    }
+
+  // None of the candidates were a non-default (specialized) function, so we
+  // error out
+  if (all_default)
+    {
+      rust_sorry_at (expr.get_locus (),
+		     "cannot resolve method calls to non-specialized methods "
+		     "(all function candidates are %qs)",
+		     "default");
+      return tl::nullopt;
+    }
+
+  return found;
 }
 
 void
@@ -1181,34 +1282,25 @@ TypeCheckExpr::visit (HIR::MethodCallExpr &expr)
       return;
     }
 
+  tl::optional<const MethodCandidate &> candidate = *candidates.begin ();
+
   if (candidates.size () > 1)
-    {
-      rich_location r (line_table, expr.get_method_name ().get_locus ());
-      std::string rich_msg
-	= "multiple " + expr.get_method_name ().get_segment ().as_string ()
-	  + " found";
+    candidate = handle_multiple_candidates (expr, candidates);
 
-      for (auto &c : candidates)
-	r.add_range (c.candidate.locus);
+  if (!candidate)
+    return;
 
-      r.add_fixit_replace (rich_msg.c_str ());
+  auto found_candidate = *candidate;
 
-      rust_error_at (
-	r, ErrorCode::E0592, "duplicate definitions with name %qs",
-	expr.get_method_name ().get_segment ().as_string ().c_str ());
-      return;
-    }
-
-  auto candidate = *candidates.begin ();
   rust_debug_loc (expr.get_method_name ().get_locus (),
 		  "resolved method to: {%u} {%s} with [%lu] adjustments",
-		  candidate.candidate.ty->get_ref (),
-		  candidate.candidate.ty->debug_str ().c_str (),
-		  (unsigned long) candidate.adjustments.size ());
+		  found_candidate.candidate.ty->get_ref (),
+		  found_candidate.candidate.ty->debug_str ().c_str (),
+		  (unsigned long) found_candidate.adjustments.size ());
 
   // Get the adjusted self
   Adjuster adj (receiver_tyty);
-  TyTy::BaseType *adjusted_self = adj.adjust_type (candidate.adjustments);
+  TyTy::BaseType *adjusted_self = adj.adjust_type (found_candidate.adjustments);
   rust_debug ("receiver: %s adjusted self %s",
 	      receiver_tyty->debug_str ().c_str (),
 	      adjusted_self->debug_str ().c_str ());
@@ -1219,10 +1311,10 @@ TypeCheckExpr::visit (HIR::MethodCallExpr &expr)
   HirId autoderef_mappings_id
     = expr.get_receiver ().get_mappings ().get_hirid ();
   context->insert_autoderef_mappings (autoderef_mappings_id,
-				      std::move (candidate.adjustments));
+				      std::move (found_candidate.adjustments));
 
-  PathProbeCandidate &resolved_candidate = candidate.candidate;
-  TyTy::BaseType *lookup_tyty = candidate.candidate.ty;
+  PathProbeCandidate &resolved_candidate = found_candidate.candidate;
+  TyTy::BaseType *lookup_tyty = found_candidate.candidate.ty;
   NodeId resolved_node_id
     = resolved_candidate.is_impl_candidate ()
 	? resolved_candidate.item.impl.impl_item->get_impl_mappings ()
@@ -1249,8 +1341,8 @@ TypeCheckExpr::visit (HIR::MethodCallExpr &expr)
 
   fn->prepare_higher_ranked_bounds ();
   rust_debug_loc (expr.get_locus (), "resolved method call to: {%u} {%s}",
-		  candidate.candidate.ty->get_ref (),
-		  candidate.candidate.ty->debug_str ().c_str ());
+		  found_candidate.candidate.ty->get_ref (),
+		  found_candidate.candidate.ty->debug_str ().c_str ());
 
   if (resolved_candidate.is_impl_candidate ())
     {

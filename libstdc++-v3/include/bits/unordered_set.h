@@ -34,7 +34,7 @@
 #include <bits/allocator.h>
 #include <bits/functional_hash.h> // hash
 #include <bits/stl_function.h>    // equal_to
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
 # include <bits/ranges_base.h> // ranges::begin, ranges::distance etc.
 #endif
 
@@ -245,6 +245,14 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_set(__n, __hf, key_equal(), __a)
       { }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered container
+      template<typename _InputIterator>
+	unordered_set(_InputIterator __first, _InputIterator __last,
+		      const allocator_type& __a)
+	: unordered_set(__first, __last, 0, hasher(), key_equal(), __a)
+	{ }
+
       template<typename _InputIterator>
 	unordered_set(_InputIterator __first, _InputIterator __last,
 		      size_type __n,
@@ -259,6 +267,14 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	: unordered_set(__first, __last, __n, __hf, key_equal(), __a)
 	{ }
 
+
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered container
+      unordered_set(initializer_list<value_type> __l,
+		    const allocator_type& __a)
+      : unordered_set(__l, 0, hasher(), key_equal(), __a)
+      { }
+
       unordered_set(initializer_list<value_type> __l,
 		    size_type __n,
 		    const allocator_type& __a)
@@ -271,7 +287,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_set(__l, __n, __hf, key_equal(), __a)
       { }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief  Builds an %unordered_set from a range.
        *  @since C++23
@@ -533,7 +549,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       insert(initializer_list<value_type> __l)
       { _M_h.insert(__l); }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief Inserts a range of elements.
        *  @since C++23
@@ -987,6 +1003,19 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		       typename iterator_traits<_InputIterator>::value_type>,
 		     _Allocator>;
 
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 2713. More missing allocator-extended constructors for unordered container
+  template<typename _InputIterator, typename _Allocator,
+	   typename = _RequireInputIter<_InputIterator>,
+	   typename = _RequireAllocator<_Allocator>>
+    unordered_set(_InputIterator, _InputIterator, _Allocator)
+    -> unordered_set<typename iterator_traits<_InputIterator>::value_type,
+		     hash<
+		       typename iterator_traits<_InputIterator>::value_type>,
+		     equal_to<
+		       typename iterator_traits<_InputIterator>::value_type>,
+		     _Allocator>;
+
   template<typename _InputIterator, typename _Hash, typename _Allocator,
 	   typename = _RequireInputIter<_InputIterator>,
 	   typename = _RequireNotAllocatorOrIntegral<_Hash>,
@@ -1006,6 +1035,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		  unordered_set<int>::size_type, _Allocator)
     -> unordered_set<_Tp, hash<_Tp>, equal_to<_Tp>, _Allocator>;
 
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 2713. More missing allocator-extended constructors for unordered container
+  template<typename _Tp, typename _Allocator,
+	   typename = _RequireAllocator<_Allocator>>
+    unordered_set(initializer_list<_Tp>, _Allocator)
+    -> unordered_set<_Tp, hash<_Tp>, equal_to<_Tp>, _Allocator>;
+
   template<typename _Tp, typename _Hash, typename _Allocator,
 	   typename = _RequireNotAllocatorOrIntegral<_Hash>,
 	   typename = _RequireAllocator<_Allocator>>
@@ -1013,7 +1049,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		  unordered_set<int>::size_type, _Hash, _Allocator)
     -> unordered_set<_Tp, _Hash, equal_to<_Tp>, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   __not_allocator_like _Hash = hash<ranges::range_value_t<_Rg>>,
 	   __not_allocator_like _Pred = equal_to<ranges::range_value_t<_Rg>>,
@@ -1223,6 +1259,14 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_multiset(__n, __hf, key_equal(), __a)
       { }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered container
+      template<typename _InputIterator>
+	unordered_multiset(_InputIterator __first, _InputIterator __last,
+			   const allocator_type& __a)
+	: unordered_multiset(__first, __last, 0, hasher(), key_equal(), __a)
+	{ }
+
       template<typename _InputIterator>
 	unordered_multiset(_InputIterator __first, _InputIterator __last,
 			   size_type __n,
@@ -1237,6 +1281,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	: unordered_multiset(__first, __last, __n, __hf, key_equal(), __a)
 	{ }
 
+      // _GLIBCXX_RESOLVE_LIB_DEFECTS
+      // 2713. More missing allocator-extended constructors for unordered container
+      unordered_multiset(initializer_list<value_type> __l,
+			 const allocator_type& __a)
+      : unordered_multiset(__l, 0, hasher(), key_equal(), __a)
+      { }
+
       unordered_multiset(initializer_list<value_type> __l,
 			 size_type __n,
 			 const allocator_type& __a)
@@ -1249,7 +1300,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       : unordered_multiset(__l, __n, __hf, key_equal(), __a)
       { }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief  Builds an %unordered_multiset from a range.
        *  @since C++23
@@ -1483,7 +1534,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       insert(initializer_list<value_type> __l)
       { _M_h.insert(__l); }
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
       /**
        *  @brief Inserts a range of elements.
        *  @since C++23
@@ -1949,6 +2000,19 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 				   iterator_traits<_InputIterator>::value_type>,
 			  _Allocator>;
 
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 2713. More missing allocator-extended constructors for unordered container
+  template<typename _InputIterator, typename _Allocator,
+	   typename = _RequireInputIter<_InputIterator>,
+	   typename = _RequireAllocator<_Allocator>>
+    unordered_multiset(_InputIterator, _InputIterator, _Allocator)
+    -> unordered_multiset<typename iterator_traits<_InputIterator>::value_type,
+			  hash<typename
+			       iterator_traits<_InputIterator>::value_type>,
+			  equal_to<typename
+				   iterator_traits<_InputIterator>::value_type>,
+			  _Allocator>;
+
   template<typename _InputIterator, typename _Hash, typename _Allocator,
 	   typename = _RequireInputIter<_InputIterator>,
 	   typename = _RequireNotAllocatorOrIntegral<_Hash>,
@@ -1970,6 +2034,13 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		       unordered_multiset<int>::size_type, _Allocator)
     -> unordered_multiset<_Tp, hash<_Tp>, equal_to<_Tp>, _Allocator>;
 
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 2713. More missing allocator-extended constructors for unordered container
+  template<typename _Tp, typename _Allocator,
+	   typename = _RequireAllocator<_Allocator>>
+    unordered_multiset(initializer_list<_Tp>, _Allocator)
+    -> unordered_multiset<_Tp, hash<_Tp>, equal_to<_Tp>, _Allocator>;
+
   template<typename _Tp, typename _Hash, typename _Allocator,
 	   typename = _RequireNotAllocatorOrIntegral<_Hash>,
 	   typename = _RequireAllocator<_Allocator>>
@@ -1977,7 +2048,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 		       unordered_multiset<int>::size_type, _Hash, _Allocator)
     -> unordered_multiset<_Tp, _Hash, equal_to<_Tp>, _Allocator>;
 
-#if __glibcxx_ranges_to_container // C++ >= 23
+#if __glibcxx_containers_ranges // C++ >= 23
   template<ranges::input_range _Rg,
 	   __not_allocator_like _Hash = hash<ranges::range_value_t<_Rg>>,
 	   __not_allocator_like _Pred = equal_to<ranges::range_value_t<_Rg>>,

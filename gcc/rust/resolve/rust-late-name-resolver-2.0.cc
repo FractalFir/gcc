@@ -129,6 +129,54 @@ Late::new_label (Identifier name, NodeId id)
 }
 
 void
+Late::visit (AST::ForLoopExpr &expr)
+{
+  visit_outer_attrs (expr);
+
+  ctx.bindings.enter (BindingSource::For);
+
+  visit (expr.get_pattern ());
+
+  ctx.bindings.exit ();
+
+  visit (expr.get_iterator_expr ());
+  visit (expr.get_loop_label ());
+  visit (expr.get_loop_block ());
+}
+
+void
+Late::visit (AST::IfLetExpr &expr)
+{
+  visit_outer_attrs (expr);
+
+  ctx.bindings.enter (BindingSource::Let);
+
+  for (auto &pattern : expr.get_patterns ())
+    visit (pattern);
+
+  ctx.bindings.exit ();
+
+  visit (expr.get_value_expr ());
+  visit (expr.get_if_block ());
+}
+
+void
+Late::visit (AST::MatchArm &arm)
+{
+  visit_outer_attrs (arm);
+
+  ctx.bindings.enter (BindingSource::Match);
+
+  for (auto &pattern : arm.get_patterns ())
+    visit (pattern);
+
+  ctx.bindings.exit ();
+
+  if (arm.has_match_arm_guard ())
+    visit (arm.get_guard_expr ());
+}
+
+void
 Late::visit (AST::LetStmt &let)
 {
   DefaultASTVisitor::visit_outer_attrs (let);
@@ -138,7 +186,12 @@ Late::visit (AST::LetStmt &let)
   // this makes variable shadowing work properly
   if (let.has_init_expr ())
     visit (let.get_init_expr ());
+
+  ctx.bindings.enter (BindingSource::Let);
+
   visit (let.get_pattern ());
+
+  ctx.bindings.exit ();
 
   if (let.has_else_expr ())
     visit (let.get_init_expr ());
@@ -167,9 +220,68 @@ Late::visit (AST::IdentifierPattern &identifier)
   // but values does not allow shadowing... since functions cannot shadow
   // do we insert functions in labels as well?
 
+  if (ctx.bindings.peek ().is_and_bound (identifier.get_ident ()))
+    {
+      if (ctx.bindings.peek ().get_source () == BindingSource::Param)
+	rust_error_at (
+	  identifier.get_locus (), ErrorCode::E0415,
+	  "identifier %qs is bound more than once in the same parameter list",
+	  identifier.as_string ().c_str ());
+      else
+	rust_error_at (
+	  identifier.get_locus (), ErrorCode::E0416,
+	  "identifier %qs is bound more than once in the same pattern",
+	  identifier.as_string ().c_str ());
+      return;
+    }
+
+  ctx.bindings.peek ().insert_ident (identifier.get_ident ());
+
+  if (ctx.bindings.peek ().is_or_bound (identifier.get_ident ()))
+    {
+      // FIXME: map usage instead
+      std::ignore = ctx.values.insert_shadowable (identifier.get_ident (),
+						  identifier.get_node_id ());
+    }
+  else
+    {
+      // We do want to ignore duplicated data because some situations rely on
+      // it.
+      std::ignore = ctx.values.insert_shadowable (identifier.get_ident (),
+						  identifier.get_node_id ());
+    }
+}
+
+void
+Late::visit (AST::AltPattern &pattern)
+{
+  ctx.bindings.peek ().push (Binding::Kind::Or);
+  for (auto &alt : pattern.get_alts ())
+    {
+      ctx.bindings.peek ().push (Binding::Kind::Product);
+      visit (alt);
+      ctx.bindings.peek ().merge ();
+    }
+  ctx.bindings.peek ().merge ();
+}
+
+void
+Late::visit_function_params (AST::Function &function)
+{
+  ctx.bindings.enter (BindingSource::Param);
+
+  for (auto &param : function.get_function_params ())
+    visit (param);
+
+  ctx.bindings.exit ();
+}
+
+void
+Late::visit (AST::StructPatternFieldIdent &field)
+{
   // We do want to ignore duplicated data because some situations rely on it.
-  std::ignore = ctx.values.insert_shadowable (identifier.get_ident (),
-					      identifier.get_node_id ());
+  std::ignore = ctx.values.insert_shadowable (field.get_identifier (),
+					      field.get_node_id ());
 }
 
 void
@@ -347,8 +459,8 @@ Late::visit (AST::PathInExpression &expr)
   if (!resolved)
     {
       if (!ctx.lookup (expr.get_segments ().front ().get_node_id ()))
-	rust_error_at (expr.get_locus (),
-		       "could not resolve path expression: %qs",
+	rust_error_at (expr.get_locus (), ErrorCode::E0433,
+		       "Cannot find path %qs in this scope",
 		       expr.as_simple_path ().as_string ().c_str ());
       return;
     }
@@ -391,6 +503,14 @@ Late::visit (AST::TypePath &type)
       rust_error_at (type.get_locus (), ErrorCode::E0659, "%qs is ambiguous",
 		     type.as_string ().c_str ());
       return;
+    }
+
+  if (ctx.types.forward_declared (resolved->get_node_id (),
+				  type.get_node_id ()))
+    {
+      rust_error_at (type.get_locus (), ErrorCode::E0128,
+		     "type parameters with a default cannot use forward "
+		     "declared identifiers");
     }
 
   ctx.map_usage (Usage (type.get_node_id ()),
@@ -509,14 +629,35 @@ void
 Late::visit (AST::ClosureExprInner &closure)
 {
   add_captures (closure, ctx);
-  DefaultResolver::visit (closure);
+
+  visit_outer_attrs (closure);
+
+  ctx.bindings.enter (BindingSource::Param);
+
+  for (auto &param : closure.get_params ())
+    visit (param);
+
+  ctx.bindings.exit ();
+
+  visit (closure.get_definition_expr ());
 }
 
 void
 Late::visit (AST::ClosureExprInnerTyped &closure)
 {
   add_captures (closure, ctx);
-  DefaultResolver::visit (closure);
+
+  visit_outer_attrs (closure);
+
+  ctx.bindings.enter (BindingSource::Param);
+
+  for (auto &param : closure.get_params ())
+    visit (param);
+
+  ctx.bindings.exit ();
+
+  visit (closure.get_return_type ());
+  visit (closure.get_definition_block ());
 }
 
 } // namespace Resolver2_0

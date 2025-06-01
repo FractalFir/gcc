@@ -26,6 +26,7 @@ load_lib scanipa.exp
 load_lib scanwpaipa.exp
 load_lib scanlang.exp
 load_lib scansarif.exp
+load_lib scanhtml.exp
 load_lib timeout.exp
 load_lib timeout-dg.exp
 load_lib prune.exp
@@ -507,8 +508,7 @@ if { [info procs ${tool}_load] != [list] \
 	    set linenum 1
 	    set outfile [open [lindex ${output-file} 1]]
 	    set do_fail 0
-	    set name [file tail [lindex ${output-file} 1]]
-	    verbose "output-file args is $args program is $program" 1
+	    set name [testname-for-summary]
 	    while { [gets $outfile line] >= 0 } {
 		if { $linenum != 1 } {
 		    set c [string index $output $idx]

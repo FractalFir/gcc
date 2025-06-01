@@ -685,7 +685,7 @@ invalid_opt_bb_p (basic_block cfg_bb)
   /* We only do LCM optimizations on blocks that are post dominated by
      EXIT block, that is, we don't do LCM optimizations on infinite loop.  */
   FOR_EACH_EDGE (e, ei, cfg_bb->succs)
-    if (e->flags & EDGE_FAKE)
+    if ((e->flags & EDGE_FAKE) || (e->flags & EDGE_ABNORMAL))
       return true;
 
   return false;
@@ -2698,6 +2698,7 @@ pre_vsetvl::compute_lcm_local_properties ()
   m_avout = sbitmap_vector_alloc (last_basic_block_for_fn (cfun), num_exprs);
 
   bitmap_vector_clear (m_avloc, last_basic_block_for_fn (cfun));
+  bitmap_vector_clear (m_kill, last_basic_block_for_fn (cfun));
   bitmap_vector_clear (m_antloc, last_basic_block_for_fn (cfun));
   bitmap_vector_ones (m_transp, last_basic_block_for_fn (cfun));
 
@@ -2749,6 +2750,10 @@ pre_vsetvl::compute_lcm_local_properties ()
 
       if (invalid_opt_bb_p (bb->cfg_bb ()))
 	{
+	  if (dump_file && (dump_flags & TDF_DETAILS))
+	    fprintf (dump_file, "\n --- skipping bb %u due to weird edge",
+		     bb->index ());
+
 	  bitmap_clear (m_antloc[bb_index]);
 	  bitmap_clear (m_transp[bb_index]);
 	}
@@ -3021,6 +3026,18 @@ pre_vsetvl::earliest_fuse_vsetvl_info (int iter)
 		    }
 		  continue;
 		}
+
+	      /* We cannot lift a vsetvl into the source block if the block is
+		 not transparent WRT to it.
+		 This is too restrictive for blocks where a register's use only
+		 feeds into vsetvls and no regular insns.  One example is the
+		 test rvv/vsetvl/avl_single-68.c which is currently XFAILed for
+		 that reason.
+		 In order to support this case we'd need to check the vsetvl's
+		 AVL operand's uses in the source block and make sure they are
+		 only used in other vsetvls.  */
+	      if (!bitmap_bit_p (m_transp[eg->src->index], expr_index))
+		continue;
 
 	      if (dump_file && (dump_flags & TDF_DETAILS))
 		{
@@ -3402,8 +3419,7 @@ pre_vsetvl::emit_vsetvl ()
 	    }
 	  start_sequence ();
 	  insert_vsetvl_insn (EMIT_DIRECT, footer_info);
-	  rtx_insn *rinsn = get_insns ();
-	  end_sequence ();
+	  rtx_insn *rinsn = end_sequence ();
 	  default_rtl_profile ();
 	  insert_insn_on_edge (rinsn, eg);
 	  need_commit = true;
@@ -3434,8 +3450,7 @@ pre_vsetvl::emit_vsetvl ()
       start_sequence ();
 
       insert_vsetvl_insn (EMIT_DIRECT, info);
-      rtx_insn *rinsn = get_insns ();
-      end_sequence ();
+      rtx_insn *rinsn = end_sequence ();
       default_rtl_profile ();
 
       /* We should not get an abnormal edge here.  */

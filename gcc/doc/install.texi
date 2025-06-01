@@ -350,6 +350,12 @@ documentation including the target @code{SYSTEM} definition module.
 If Python3 is unavailable Modula-2 documentation will include a target
 independent version of the SYSTEM modules.
 
+@item @anchor{gccrs-prerequisite}gccrs
+
+The official Rust compiler and Rust build system (cargo) are required for
+building various parts of the gccrs frontend, until gccrs can compile them
+by itself. The minimum supported Rust version is 1.49.
+
 @item A ``working'' POSIX compatible shell, or GNU bash
 
 Necessary when running @command{configure} because some
@@ -3137,6 +3143,13 @@ Removes any @option{-O}-started option from @code{BOOT_CFLAGS}, and adds
 @item @samp{bootstrap-O3}
 @itemx @samp{bootstrap-Og}
 Analogous to @code{bootstrap-O1}.
+
+@item @samp{bootstrap-native}
+@itemx @samp{bootstrap-native}
+Optimize the compiler code for the build host, if supported by the
+architecture. Note this only affects the compiler, not the targeted
+code. If you want the later, choose options suitable to the target you
+are looking for. For example @samp{--with-cpu} would be a good starting point.
 
 @item @samp{bootstrap-lto}
 Enables Link-Time Optimization for host tools during bootstrapping.
