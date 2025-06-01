@@ -425,8 +425,9 @@ host_detect_local_cpu (int argc, const char **argv)
 	  auto arch_info = get_arch_from_id (arch_id);
 
 	  /* We got some arch indentifier that's not in aarch64-arches.def?  */
-	  if (!arch_info)
-	    goto not_found;
+	  /* Fall back to default in that case. */
+	  if (!arch_info)arch_info = get_arch_from_id (DEFAULT_ARCH);
+	
 
 	  res = concat ("-march=", arch_info->name, NULL);
 	  default_flags = arch_info->flags;
